@@ -22,18 +22,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Node 20 + npm cache
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: "npm"
 
-      # ✅ 핵심: devDependencies 포함 설치 (npm 최신 버전 호환)
-      - name: Install (include devDependencies)
-        run: |
-          npm ci --include=dev --omit=optional
+      # ✅ 핵심: devDependencies 강제 포함
+      # (repo에 production/omit 설정이 있어도 여기서 덮어씀)
+      - name: Install deps (force include dev)
         env:
           NODE_ENV: development
+          NPM_CONFIG_PRODUCTION: "false"
+          NPM_CONFIG_INCLUDE: "dev"
+          NPM_CONFIG_OMIT: "optional"
+        run: |
+          npm install --include=dev --omit=optional
+          node -v
+          npm -v
+          ls -la node_modules/.bin | head -n 50
+          test -f node_modules/.bin/vite
 
       - name: Build
         run: npm run build
