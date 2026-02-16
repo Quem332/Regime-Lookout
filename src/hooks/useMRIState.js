@@ -18,8 +18,16 @@ import { idbGet, idbSet } from "../storage/idb";
  * NOTE: We always add a cache-busting query param + request no-store to avoid stale SW/HTTP caches.
  */
 
-const LATEST_URL = new URL("data/latest.json", import.meta.env.BASE_URL).toString();
-const CAL_URL = new URL("data/calendar.json", import.meta.env.BASE_URL).toString();
+// NOTE:
+// - import.meta.env.BASE_URL is usually a PATH (e.g. "/Regime-Lookout/") in production.
+// - new URL(relative, base) requires an *absolute* base, otherwise browsers throw
+//   "Failed to construct 'URL': Invalid base URL".
+// So we first anchor BASE_URL to window.location.origin.
+const APP_BASE = import.meta.env.BASE_URL ?? "/";
+const ABS_BASE = new URL(APP_BASE, window.location.origin).toString();
+
+const LATEST_URL = new URL("data/latest.json", ABS_BASE).toString();
+const CAL_URL = new URL("data/calendar.json", ABS_BASE).toString();
 
 // Display latency buckets (minutes)
 function latencyTone(latencyMin) {
