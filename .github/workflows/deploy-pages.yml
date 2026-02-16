@@ -28,14 +28,12 @@ jobs:
           node-version: 20
           cache: "npm"
 
-      # ✅ 핵심: production 모드로 devDependencies 빠지는 걸 강제로 막음
+      # ✅ 핵심: devDependencies 포함 설치 (npm 최신 버전 호환)
       - name: Install (include devDependencies)
-        env:
-          NPM_CONFIG_PRODUCTION: "false"
-          NODE_ENV: "development"
         run: |
-          npm config set production false
-          npm ci --include=dev
+          npm ci --include=dev --omit=optional
+        env:
+          NODE_ENV: development
 
       - name: Build
         run: npm run build
