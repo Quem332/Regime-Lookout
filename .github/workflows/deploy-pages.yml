@@ -25,7 +25,7 @@ jobs:
       - name: Downgrade npm to stable v9
         run: |
           npm -v
-          npm install -g npm@9
+          npm ci -g npm@9
           npm -v
 
       # ⭐ npm 설정 초기화
@@ -38,7 +38,7 @@ jobs:
 
       # ⭐ devDependencies 포함 설치
       - name: Install deps
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Build
         run: npm run build
