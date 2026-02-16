@@ -17,28 +17,31 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node (20)
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: "npm"
 
-      # ✅ npm 10에서 나는 "Exit handler never called!" 크래시 회피용: npm 9로 고정
-      - name: Use npm 9 (stable)
-        run: |
-          npm -v
-          npm i -g npm@9
-          npm -v
-
-      - name: Install deps (include dev)
+      # ✅ 네트워크 타임아웃(ETIMEDOUT) + 이상한 레지스트리 방지:
+      # - registry를 npmjs.org로 강제
+      # - retry/timeout 늘림
+      # ✅ devDependencies(vite) 포함
+      - name: Install deps (force npmjs + retries + include dev)
         env:
           NODE_ENV: development
           NPM_CONFIG_PRODUCTION: "false"
         run: |
+          npm config set registry https://registry.npmjs.org/
+          npm config set fetch-retries 5
+          npm config set fetch-retry-mintimeout 20000
+          npm config set fetch-retry-maxtimeout 120000
+          npm config set fetch-timeout 300000
           npm ci --include=dev --omit=optional
 
       - name: Build
