@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Safe-area padding for iOS standalone */
+:root {
+  --sat: env(safe-area-inset-top);
+  --sab: env(safe-area-inset-bottom);
+}
+
+/*
+  UX rule (MRI v2.3): navigation is swipe-only.
+  Disable document scrolling to avoid gesture conflicts on mobile.
+*/
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+
+
+/* --- MRI Scroll-0 Hard Lock --- */
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden !important;
+  overscroll-behavior: none;
+}
+
+body {
+  touch-action: none; /* navigation is swipe, not scroll */
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+body::-webkit-scrollbar {
+  display: none;
+}

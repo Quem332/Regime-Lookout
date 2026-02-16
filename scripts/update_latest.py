@@ -1,221 +1,213 @@
-import json
-import math
-import os
-from datetime import datetime, timezone
+#!/usr/bin/env python3
 
+import json, os, sys, math
+from datetime import datetime, timedelta, timezone
+import pytz
 import numpy as np
 import pandas as pd
 import yfinance as yf
 
+ET = pytz.timezone("America/New_York")
 
-# ================
-# Config (MRI Spec)
-# ================
-TICKERS = {
-    "QQQM": "QQQM",
-    "XLP": "XLP",
-    "VOO": "VOO",
-    "UUP": "UUP",
-    "GLD": "GLD",
-    "VIX": "^VIX",
-    "TNX": "^TNX",
+# ---- Config ----
+WINDOW_Z = 252
+DELAY_MIN = 10            # "10 min delayed"
+SCHEDULE_MIN = 30         # normal cadence
+EVENT_WINDOW_MIN = 15     # during event: update every 15 min (Actions still runs every 15 min; we decide whether to write)
+
+TICKERS_DAILY = {
+  "QQQM": "QQQM",
+  "XLP": "XLP",
+  "VOO": "VOO",
+  "UUP": "UUP",
+  "GLD": "GLD",
+  "VIX": "^VIX",
+  "TNX": "^TNX",
 }
 
-LOOKBACK_Z = 252  # trading days for z-score baseline
-RET_20 = 20
-VIX_CHG_5 = 5
+def zscore(series: pd.Series) -> float:
+  s = series.dropna()
+  if len(s) < 30:
+    return float("nan")
+  mu = s.mean()
+  sd = s.std(ddof=0)
+  if sd == 0 or not np.isfinite(sd):
+    return float("nan")
+  return float((s.iloc[-1] - mu) / sd)
 
-OUT_PATH = os.path.join("public", "data", "latest.json")
-CAL_PATH = os.path.join("public", "data", "calendar.json")
+def last_trading_day(dt_et: datetime) -> str:
+  # Simple: last weekday. (Holiday handling is intentionally avoided for robustness without external calendars)
+  d = dt_et.date()
+  while d.weekday() >= 5:
+    d = d - timedelta(days=1)
+  return d.isoformat()
 
+def should_write(now_et: datetime, events) -> bool:
+  # write on normal cadence: minute == 0 or 30, AND at least DELAY_MIN minutes after boundary
+  m = now_et.minute
+  on_slot = (m in (0, 30))
+  if on_slot:
+    # if m==0, boundary is top of hour; require now >= hh:DELAY
+    if m == 0:
+      return now_et.minute >= 0 and now_et.second >= 0 and (now_et.minute >= DELAY_MIN)
+    # if m==30, require >= hh:30+DELAY => minute >= 30+DELAY not possible; so handle by checking minutes since 30
+    # better: minutes_since_halfhour = m - 30
+    return (m - 30) >= DELAY_MIN
 
-def zscore_last(series: pd.Series) -> float:
-    s = series.dropna()
-    if len(s) < 30:
-        return float("nan")
-    mu = float(s.mean())
-    sd = float(s.std(ddof=0))
-    if sd == 0:
-        return 0.0
-    return float((s.iloc[-1] - mu) / sd)
+  # Event window: +/- EVENT_WINDOW_MIN around each event time
+  for e in events:
+    try:
+      dt = ET.localize(datetime.fromisoformat(f"{e['date']}T{e['time']}:00"))
+    except Exception:
+      continue
+    if abs((now_et - dt).total_seconds()) <= EVENT_WINDOW_MIN * 60:
+      return True
 
+  return False
 
-def safe_ln_ratio(a: pd.Series, b: pd.Series) -> pd.Series:
-    a = a.replace(0, np.nan)
-    b = b.replace(0, np.nan)
-    return np.log(a / b)
+def event_window_active(now_et: datetime, events) -> bool:
+  for e in events:
+    try:
+      dt = ET.localize(datetime.fromisoformat(f"{e['date']}T{e['time']}:00"))
+    except Exception:
+      continue
+    if abs((now_et - dt).total_seconds()) <= EVENT_WINDOW_MIN * 60:
+      return True
+  return False
 
+def load_events(path: str):
+  try:
+    with open(path, "r", encoding="utf-8") as f:
+      cal = json.load(f)
+    events = cal.get("events", [])
+    out=[]
+    for e in events:
+      if isinstance(e, dict) and "date" in e and "time" in e:
+        out.append({"date": str(e["date"]), "time": str(e["time"]), "name": str(e.get("name","Event"))})
+    return out
+  except Exception:
+    return []
 
-def ensure_calendar_exists():
-    # 형식만 만들고 비워두는 기본값
-    if not os.path.exists(CAL_PATH):
-        os.makedirs(os.path.dirname(CAL_PATH), exist_ok=True)
-        with open(CAL_PATH, "w", encoding="utf-8") as f:
-            json.dump({"events": []}, f, ensure_ascii=False, indent=2)
+def fetch_daily_prices(period="2y"):
+  # We fetch all tickers in one call for speed.
+  tickers = " ".join(TICKERS_DAILY.values())
+  df = yf.download(tickers, period=period, interval="1d", auto_adjust=True, group_by="ticker", threads=True, progress=False)
+  if df is None or df.empty:
+    raise RuntimeError("yfinance download returned empty daily data")
+  # Normalize to close prices dataframe with columns = symbols
+  close = {}
+  for k, sym in TICKERS_DAILY.items():
+    if (sym, "Close") in df.columns:
+      close[k] = df[(sym, "Close")].rename(k)
+    elif "Close" in df.columns and sym in df.columns.get_level_values(0):
+      close[k] = df[sym]["Close"].rename(k)
+  out = pd.concat(close.values(), axis=1).dropna(how="all")
+  return out
 
-
-def should_write_now(now_utc: datetime) -> bool:
-    """
-    실행은 15분마다 하되, 실제로 파일을 '갱신'하는 타이밍은:
-    - 30분 봉 기준 + 10분 지연: 대략 :10 / :40 부근
-    - Actions 스케줄 지터 고려해서 윈도우를 ±4분로 잡음
-    """
-    m = now_utc.minute
-    # allowed windows: [6..14] and [36..44]
-    return (6 <= m <= 14) or (36 <= m <= 44)
-
+def fetch_intraday_prices():
+  # Optional: intraday summary. We keep it minimal to reduce failure modes.
+  # If intraday fails, we still write daily-only.
+  try:
+    sym = "QQQM"
+    t = yf.Ticker(sym)
+    intr = t.history(period="2d", interval="5m")
+    if intr is None or intr.empty:
+      return None
+    # zShort: position of last price within 2d mean/std (rough)
+    px = intr["Close"].dropna()
+    if len(px) < 30:
+      return None
+    zshort = float((px.iloc[-1] - px.mean()) / (px.std(ddof=0) + 1e-9))
+    return {
+      "zShort": round(zshort, 4),
+      "corrAvg": None,
+      "corrSurge": False,
+      "intervalUsed": "5m"
+    }
+  except Exception:
+    return None
 
 def main():
-    ensure_calendar_exists()
+  repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+  out_path = os.path.join(repo_root, "public", "data", "latest.json")
+  cal_path = os.path.join(repo_root, "public", "data", "calendar.json")
 
-    now_utc = datetime.now(timezone.utc)
-    # 15분마다 실행되지만, 파일 쓰기는 30분+10분 지연 윈도우에서만
-    if not should_write_now(now_utc):
-        print(f"[SKIP] Not in write window. UTC={now_utc.isoformat()}")
-        return
+  now_utc = datetime.now(timezone.utc)
+  now_et = now_utc.astimezone(ET)
 
-    print(f"[RUN] Updating latest.json. UTC={now_utc.isoformat()}")
+  events = load_events(cal_path)
 
-    tickers = list(TICKERS.values())
+  if not should_write(now_et, events):
+    print("[SKIP] Not in scheduled slot or event window.")
+    return 0
 
-    # Use Adj Close when available
-    df = yf.download(
-        tickers=tickers,
-        period="2y",   # enough to cover 252 trading days robustly
-        interval="1d",
-        auto_adjust=True,
-        group_by="ticker",
-        threads=True,
-        progress=False,
-    )
+  # "asOf" = now - DELAY, as ET ISO string (with offset)
+  asof_utc = now_utc - timedelta(minutes=DELAY_MIN)
+  asof_et = asof_utc.astimezone(ET)
 
-    # Normalize shape: df may be multiindex columns
-    def get_close(sym: str) -> pd.Series:
-        if isinstance(df.columns, pd.MultiIndex):
-            # yfinance: (field, ticker) or (ticker, field) depending on group_by
-            if ("Close", sym) in df.columns:
-                return df[("Close", sym)]
-            if (sym, "Close") in df.columns:
-                return df[(sym, "Close")]
-            if ("Adj Close", sym) in df.columns:
-                return df[("Adj Close", sym)]
-            if (sym, "Adj Close") in df.columns:
-                return df[(sym, "Adj Close")]
-        # single index fallback
-        for col in ["Close", "Adj Close"]:
-            if col in df.columns:
-                return df[col]
-        raise RuntimeError(f"Could not find Close series for {sym}")
+  # Fetch daily series, compute features
+  close = fetch_daily_prices(period="3y")
 
-    qqqm = get_close(TICKERS["QQQM"])
-    xlp = get_close(TICKERS["XLP"])
-    voo = get_close(TICKERS["VOO"])
-    uup = get_close(TICKERS["UUP"])
-    gld = get_close(TICKERS["GLD"])
-    vix = get_close(TICKERS["VIX"])
-    tnx = get_close(TICKERS["TNX"])
+  # Align window
+  close = close.dropna(subset=["QQQM","XLP","VOO","UUP","GLD"], how="any")
+  if len(close) < WINDOW_Z + 25:
+    raise RuntimeError(f"Insufficient daily history: {len(close)} rows")
 
-    # Align index and keep last ~ (LOOKBACK_Z + buffer)
-    # Convert to DataFrame for easy shifting
-    data = pd.DataFrame({
-        "qqqm": qqqm,
-        "xlp": xlp,
-        "voo": voo,
-        "uup": uup,
-        "gld": gld,
-        "vix": vix,
-        "tnx": tnx,
-    }).dropna()
+  # x = z( ln(QQQM/XLP) )
+  ratio = np.log(close["QQQM"] / close["XLP"])
+  x = zscore(ratio.tail(WINDOW_Z))
 
-    # Use last 400-ish rows for safety
-    data = data.tail(max(LOOKBACK_Z + 80, 360))
+  # y = z( VOO 20d return )
+  voo_ret20 = close["VOO"].pct_change(20)
+  y = zscore(voo_ret20.tail(WINDOW_Z))
 
-    # Features (raw series)
-    # x = z( ln(QQQM/XLP) )
-    x_raw = safe_ln_ratio(data["qqqm"], data["xlp"])
+  # usd = z( UUP 20d change )
+  uup_chg20 = close["UUP"].pct_change(20)
+  usd = zscore(uup_chg20.tail(WINDOW_Z))
 
-    # y = z( VOO 20d return )
-    y_raw = data["voo"].pct_change(RET_20)
+  # rates = z( TNX 20d change )  (TNX is an index; yfinance provides a "Close" level)
+  tnx = close["TNX"].dropna()
+  rates_chg20 = tnx.pct_change(20)  # robust, avoids units issue
+  rates = zscore(rates_chg20.tail(WINDOW_Z))
 
-    # usd = z( UUP 20d change )
-    usd_raw = data["uup"].pct_change(RET_20)
+  # vix = z( VIX 5d change )
+  vix = close["VIX"].dropna()
+  vix_chg5 = vix.pct_change(5)
+  vix_z = zscore(vix_chg5.tail(WINDOW_Z))
 
-    # rates = z( TNX 20d change )  (use diff; for yields, diff is common)
-    rates_raw = data["tnx"].diff(RET_20)
+  # goldFear = z(GLD 20d chg) - 0.5*z(UUP 20d chg)   (USD effect removal)
+  gld_chg20 = close["GLD"].pct_change(20)
+  gld_z = zscore(gld_chg20.tail(WINDOW_Z))
+  goldFear = gld_z - 0.5 * usd
 
-    # vix = z( VIX 5d change )
-    vix_raw = data["vix"].diff(VIX_CHG_5)
+  featuresZ = {
+    "x": float(np.nan_to_num(x, nan=0.0)),
+    "y": float(np.nan_to_num(y, nan=0.0)),
+    "rates": float(np.nan_to_num(rates, nan=0.0)),
+    "usd": float(np.nan_to_num(usd, nan=0.0)),
+    "vix": float(np.nan_to_num(vix_z, nan=0.0)),
+    "goldFear": float(np.nan_to_num(goldFear, nan=0.0)),
+  }
 
-    # goldFear = z(GLD 20d chg) - 0.5*z(UUP 20d chg)
-    gld_chg = data["gld"].pct_change(RET_20)
-    uup_chg = usd_raw
+  # latency (minutes) vs "asOf"
+  latency_min = round((now_et - asof_et).total_seconds() / 60.0, 1)
 
-    # z-score baseline window = last 252 valid points
-    def last_window(s: pd.Series) -> pd.Series:
-        s2 = s.dropna()
-        return s2.tail(LOOKBACK_Z)
+  payload = {
+    "asOf": asof_et.isoformat(),
+    "lastTradingDay": last_trading_day(now_et),
+    "featuresZ": featuresZ,
+    "intraday": fetch_intraday_prices(),
+    "dataHealth": {"level": "OK", "source": "yfinance"},
+    "latencyMin": latency_min,
+    "eventWindowActive": event_window_active(now_et, events),
+  }
 
-    x_z = zscore_last(last_window(x_raw))
-    y_z = zscore_last(last_window(y_raw))
-    usd_z = zscore_last(last_window(usd_raw))
-    rates_z = zscore_last(last_window(rates_raw))
-    vix_z = zscore_last(last_window(vix_raw))
-    gld_z = zscore_last(last_window(gld_chg))
-    uup_z = zscore_last(last_window(uup_chg))
-    goldFear_z = gld_z - 0.5 * uup_z  # 확정
+  os.makedirs(os.path.dirname(out_path), exist_ok=True)
+  with open(out_path, "w", encoding="utf-8") as f:
+    json.dump(payload, f, ensure_ascii=False, indent=2)
 
-    featuresZ = {
-        "x": x_z,
-        "y": y_z,
-        "rates": rates_z,
-        "usd": usd_z,
-        "vix": vix_z,
-        "goldFear": goldFear_z,
-    }
-
-    # validate finite
-    bad = [k for k, v in featuresZ.items() if not (isinstance(v, (int, float)) and math.isfinite(v))]
-    if bad:
-        raise RuntimeError(f"Non-finite featuresZ: {bad} -> {featuresZ}")
-
-    payload = {
-        "asOfUTC": now_utc.isoformat(),
-        "featuresZ": featuresZ,
-        # optional: intraday placeholders (front can handle absence)
-        "intraday": {
-            "zShort": None,
-            "corrAvg": None,
-            "corrSurge": None,
-            "intervalUsed": None,
-        },
-        "dataHealth": {"level": "GOOD", "source": "yfinance"},
-    }
-
-    os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
-
-    # Only write if changed meaningfully (avoid noisy commits)
-    old = None
-    if os.path.exists(OUT_PATH):
-        try:
-            with open(OUT_PATH, "r", encoding="utf-8") as f:
-                old = json.load(f)
-        except Exception:
-            old = None
-
-    def rounded_feat(d):
-        return {k: round(float(v), 6) for k, v in d.items()}
-
-    if old and "featuresZ" in old:
-        if rounded_feat(old["featuresZ"]) == rounded_feat(featuresZ):
-            print("[NOOP] featuresZ unchanged (rounded).")
-            return
-
-    with open(OUT_PATH, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
-
-    print(f"[OK] Wrote {OUT_PATH}")
-    print(json.dumps(payload["featuresZ"], ensure_ascii=False))
-
+  print("[OK] Wrote latest.json", out_path)
+  return 0
 
 if __name__ == "__main__":
-    main()
+  raise SystemExit(main())

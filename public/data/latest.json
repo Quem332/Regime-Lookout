@@ -1,0 +1,23 @@
+{
+  "asOf": "2026-02-14T17:03:03Z",
+  "lastTradingDay": null,
+  "featuresZ": {
+    "x": 0,
+    "y": 0,
+    "rates": 0,
+    "usd": 0,
+    "vix": 0,
+    "goldFear": 0
+  },
+  "intraday": {
+    "zShort": 0,
+    "corrAvg": 0.5,
+    "corrSurge": false,
+    "intervalUsed": "15m"
+  },
+  "dataHealth": {
+    "level": "MOCK",
+    "source": "local"
+  },
+  "latencyMin": 0
+}
