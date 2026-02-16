@@ -27,7 +27,9 @@ jobs:
           cache: npm
 
       - name: Install
-        run: npm ci
+        run: npm ci --include=dev
+        env:
+          NODE_ENV: development
 
       - name: Build
         run: npm run build
