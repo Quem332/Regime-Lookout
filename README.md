@@ -12,6 +12,12 @@ It interprets macro-financial conditions to describe the current market regime.
 The goal is behavioral stability through structured interpretation of macro signals.
 (매크로 신호를 구조화하여 감정적 투자 판단을 줄이는 것이 목표입니다.)
 
+
+The developer of this project is not formally trained in software engineering or economics.
+This system was developed for personal use with the assistance of AI tools.
+(본 프로젝트의 개발자는 소프트웨어 공학이나 경제학을 전공하지 않았으며,
+개인적인 사용 목적을 위해 AI 도구의 도움을 받아 개발되었습니다.)
+
 ---
 
 ## Core Principles | 핵심 철학
