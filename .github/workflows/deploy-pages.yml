@@ -2,8 +2,8 @@ name: Deploy Regime-Lookout to GitHub Pages
 
 on:
   push:
-    branches: [main]
-  workflow_dispatch: {}
+    branches: ["main"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -17,24 +17,30 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
+          cache: "npm"
 
-      - name: Install
-        run: npm ci --include=dev
+      # ✅ 핵심: production 모드로 devDependencies 빠지는 걸 강제로 막음
+      - name: Install (include devDependencies)
         env:
-          NODE_ENV: development
+          NPM_CONFIG_PRODUCTION: "false"
+          NODE_ENV: "development"
+        run: |
+          npm config set production false
+          npm ci --include=dev
 
       - name: Build
         run: npm run build
 
-      - name: Upload artifact
+      - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
@@ -42,10 +48,6 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Deploy
-        id: deployment
+      - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v4
