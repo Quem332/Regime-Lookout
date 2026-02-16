@@ -3,6 +3,23 @@ import React, { useState } from "react";
 import { Modal } from "../components/Modal";
 import { DebugPanel } from "../components/DebugPanel";
 
+const DEFAULT_T = {
+  hub: {
+    settings: "Hub / Settings",
+    refreshMock: "Refresh (mock)",
+    nav: "Navigation",
+    navText1: "Use the top bar to cycle pages: Daily → Score → Intraday → Hub.",
+    navText2: "Tap a card to open details. Use 'Debug Logs' to copy error context.",
+    about: "About",
+    version: "Version",
+    dataSources: "Data sources",
+    disclaimer: "Disclaimer",
+    discText:
+      "This app is an interpretation tool (not financial advice). Data may be delayed or incomplete. Use at your own risk.",
+  },
+};
+
+
 function Card({ title, children }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
