@@ -3,52 +3,36 @@ name: Deploy Regime-Lookout to GitHub Pages
 on:
   push:
     branches: ["main"]
-  workflow_dispatch:
 
 permissions:
   contents: read
   pages: write
   id-token: write
 
-concurrency:
-  group: "pages"
-  cancel-in-progress: true
-
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: "npm"
 
-      # ✅ 네트워크 타임아웃(ETIMEDOUT) + 이상한 레지스트리 방지:
-      # - registry를 npmjs.org로 강제
-      # - retry/timeout 늘림
-      # ✅ devDependencies(vite) 포함
-      - name: Install deps (force npmjs + retries + include dev)
-        env:
-          NODE_ENV: development
-          NPM_CONFIG_PRODUCTION: "false"
+      # 🔥 npm production 설정 완전 제거
+      - name: Fix npm config
         run: |
+          npm config delete production || true
           npm config set registry https://registry.npmjs.org/
-          npm config set fetch-retries 5
-          npm config set fetch-retry-mintimeout 20000
-          npm config set fetch-retry-maxtimeout 120000
-          npm config set fetch-timeout 300000
-          npm ci --include=dev --omit=optional
+
+      - name: Install
+        run: npm install
 
       - name: Build
-        run: npm run build
+        run: npx vite build
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
@@ -56,5 +40,4 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy to GitHub Pages
-        uses: actions/deploy-pages@v4
+      - uses: actions/deploy-pages@v4
