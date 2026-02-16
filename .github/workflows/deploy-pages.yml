@@ -10,53 +10,40 @@ permissions:
   pages: write
   id-token: write
 
-concurrency:
-  group: "pages"
-  cancel-in-progress: true
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: "npm"
 
-      # ✅ 핵심: npm이 devDeps를 생략/production으로 해석하는 설정을 "삭제"로 초기화
-      - name: Normalize npm config (clear production/omit/only)
+      # ⭐ npm10 버그 회피
+      - name: Downgrade npm to stable v9
+        run: |
+          npm -v
+          npm install -g npm@9
+          npm -v
+
+      # ⭐ npm 설정 초기화
+      - name: Reset npm config
         run: |
           npm config delete production || true
           npm config delete omit || true
           npm config delete only || true
           npm config set registry https://registry.npmjs.org/
-          npm config set fetch-retries 5
-          npm config set fetch-retry-mintimeout 20000
-          npm config set fetch-retry-maxtimeout 120000
-          npm config set fetch-timeout 300000
-          npm config list
 
-      # ✅ devDependencies 포함해서 설치 (vite는 반드시 여기서 설치돼야 함)
-      - name: Install deps (include dev)
-        env:
-          NODE_ENV: development
-          NPM_CONFIG_PRODUCTION: "false"
-          NPM_CONFIG_OMIT: "optional"
-        run: |
-          npm install --include=dev --omit=optional --no-audit --no-fund
-          echo "---- verify vite exists ----"
-          ls -la node_modules/.bin | head -n 60
-          test -f node_modules/.bin/vite
+      # ⭐ devDependencies 포함 설치
+      - name: Install deps
+        run: npm install --no-audit --no-fund
 
-      - name: Build (local vite)
+      - name: Build
         run: npm run build
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
@@ -64,5 +51,4 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy to GitHub Pages
-        uses: actions/deploy-pages@v4
+      - uses: actions/deploy-pages@v4
