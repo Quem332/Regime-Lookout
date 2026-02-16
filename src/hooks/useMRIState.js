@@ -24,7 +24,7 @@ import { idbGet, idbSet } from "../storage/idb";
 //   "Failed to construct 'URL': Invalid base URL".
 // So we first anchor BASE_URL to window.location.origin.
 const APP_BASE = import.meta.env.BASE_URL ?? "/";
-const ABS_BASE = new URL(APP_BASE, window.location.origin).toString();
+const ABS_BASE = new URL(APP_BASE, document.baseURI).toString();
 
 const LATEST_URL = new URL("data/latest.json", ABS_BASE).toString();
 const CAL_URL = new URL("data/calendar.json", ABS_BASE).toString();
