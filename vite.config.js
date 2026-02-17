@@ -2,6 +2,10 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
+/**
+ * GitHub Pages project-site base path:
+ *   https://<user>.github.io/<repo>/
+ */
 const BASE = "/Regime-Lookout/";
 
 export default defineConfig({
@@ -10,14 +14,14 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      // (선택) 빌드 시 registerSW.js 자동 주입 안 쓰고, 지금처럼 main.jsx에서 registerSW import하는 구조면 생략 가능
-      // injectRegister: "auto",
 
+      // Assets copied from /public into dist/
       includeAssets: [
         "icons/apple-touch-icon.png",
         "icons/icon-192.png",
         "icons/icon-512.png",
         "icons/icon-512-maskable.png",
+        ".nojekyll",
       ],
 
       manifest: {
@@ -42,20 +46,21 @@ export default defineConfig({
         ],
       },
 
+      /**
+       * IMPORTANT
+       * Workbox `urlPattern` functions are serialized into the service worker.
+       * Do NOT reference outer variables (like BASE) here, or you'll get
+       * "ReferenceError: BASE is not defined" at runtime.
+       */
       workbox: {
-        // ★ 이게 중요: 예전 캐시 정리 + 새 SW 즉시 적용
-        cleanupOutdatedCaches: true,
-        skipWaiting: true,
-        clientsClaim: true,
-
         runtimeCaching: [
           {
             urlPattern: ({ url }) =>
-              url.pathname.startsWith(BASE + "data/") && url.pathname.endsWith(".json"),
+              url.pathname.includes("/data/") && url.pathname.endsWith(".json"),
             handler: "NetworkFirst",
             options: {
-              cacheName: "mri-data",
-              expiration: { maxEntries: 30, maxAgeSeconds: 60 * 60 * 24 },
+              cacheName: "mri-json",
+              expiration: { maxEntries: 30, maxAgeSeconds: 60 * 60 * 24 * 7 },
             },
           },
         ],
