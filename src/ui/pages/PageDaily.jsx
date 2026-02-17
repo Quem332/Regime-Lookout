@@ -3,6 +3,19 @@ import { Card } from "../components/Card";
 import { Bar } from "../components/Bar";
 import { I18N, createT } from "../../core/i18n";
 
+// Safe i18n helper: works even if `t` is missing or not callable.
+function T(t, key, fallback) {
+  try {
+    if (typeof t === "function") {
+      const v = t(key, fallback);
+      return typeof v === "string" && v.length ? v : fallback;
+    }
+  } catch {
+    // ignore
+  }
+  return fallback;
+}
+
 function detectLang() {
   try {
     const l = (navigator.language || "en").toLowerCase();
@@ -33,10 +46,10 @@ function QuadrantMap({ x = 0, y = 0, t }) {
       </div>
 
       {/* corner labels */}
-      <div className="absolute left-3 top-3 text-xs text-white/60">{TT("daily.quad.def_in", "방어·유입")}</div>
-      <div className="absolute right-3 top-3 text-xs text-white/60 text-right">{TT("daily.quad.growth_in", "성장·유입")}</div>
-      <div className="absolute left-3 bottom-3 text-xs text-white/60">{TT("daily.quad.def_out", "방어·유출")}</div>
-      <div className="absolute right-3 bottom-3 text-xs text-white/60 text-right">{TT("daily.quad.growth_out", "성장·유출")}</div>
+      <div className="absolute left-3 top-3 text-xs text-white/60">{T(t, "daily.quad.def_in", "방어·유입")}</div>
+      <div className="absolute right-3 top-3 text-xs text-white/60 text-right">{T(t, "daily.quad.growth_in", "성장·유입")}</div>
+      <div className="absolute left-3 bottom-3 text-xs text-white/60">{T(t, "daily.quad.def_out", "방어·유출")}</div>
+      <div className="absolute right-3 bottom-3 text-xs text-white/60 text-right">{T(t, "daily.quad.growth_out", "성장·유출")}</div>
 
       {/* dot */}
       <div
@@ -45,10 +58,10 @@ function QuadrantMap({ x = 0, y = 0, t }) {
       />
 
       {/* axis labels */}
-      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-white/40">{TT("daily.defense", "방어")}</div>
-      <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40 text-right">{TT("daily.growth", "성장")}</div>
-      <div className="absolute left-1/2 top-3 -translate-x-1/2 text-xs text-white/40">{TT("daily.inflow", "유입")}</div>
-      <div className="absolute left-1/2 bottom-3 -translate-x-1/2 text-xs text-white/40">{TT("daily.outflow", "유출")}</div>
+      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-white/40">{T(t, "daily.defense", "방어")}</div>
+      <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40 text-right">{T(t, "daily.growth", "성장")}</div>
+      <div className="absolute left-1/2 top-3 -translate-x-1/2 text-xs text-white/40">{T(t, "daily.inflow", "유입")}</div>
+      <div className="absolute left-1/2 bottom-3 -translate-x-1/2 text-xs text-white/40">{T(t, "daily.outflow", "유출")}</div>
     </div>
   );
 }
@@ -81,25 +94,25 @@ function getQuad(x, y, t) {
   const yi = y >= 0;
   if (xi && yi) {
     return {
-      label: TT("daily.quad.growth_in", "성장·유입"),
-      blurb: TT("daily.quad.growth_in_blurb", "리스크 선호가 강하고, 시장 전체로 자금이 들어오는 흐름"),
+      label: T(t, "daily.quad.growth_in", "성장·유입"),
+      blurb: T(t, "daily.quad.growth_in_blurb", "리스크 선호가 강하고, 시장 전체로 자금이 들어오는 흐름"),
     };
   }
   if (xi && !yi) {
     return {
-      label: TT("daily.quad.growth_out", "성장·유출"),
-      blurb: TT("daily.quad.growth_out_blurb", "성장 편향은 남아있지만, 시장 총량은 줄어드는 흐름"),
+      label: T(t, "daily.quad.growth_out", "성장·유출"),
+      blurb: T(t, "daily.quad.growth_out_blurb", "성장 편향은 남아있지만, 시장 총량은 줄어드는 흐름"),
     };
   }
   if (!xi && yi) {
     return {
-      label: TT("daily.quad.defense_in", "방어·유입"),
-      blurb: TT("daily.quad.defense_in_blurb", "방어 선호가 강하고, 자금은 남아있는 ‘리스크 오프’ 흐름"),
+      label: T(t, "daily.quad.defense_in", "방어·유입"),
+      blurb: T(t, "daily.quad.defense_in_blurb", "방어 선호가 강하고, 자금은 남아있는 ‘리스크 오프’ 흐름"),
     };
   }
   return {
-    label: TT("daily.quad.defense_out", "방어·유출"),
-    blurb: TT("daily.quad.defense_out_blurb", "방어로 피난 중인데, 시장 총량도 줄어드는 압박 구간"),
+    label: T(t, "daily.quad.defense_out", "방어·유출"),
+    blurb: T(t, "daily.quad.defense_out_blurb", "방어로 피난 중인데, 시장 총량도 줄어드는 압박 구간"),
   };
 }
 
@@ -117,11 +130,12 @@ export function PageDaily({ state, t }) {
   const today = useMemo(() => {
     const xNum = typeof x === "number" && Number.isFinite(x) ? x : null;
     const yNum = typeof y === "number" && Number.isFinite(y) ? y : null;
-    if (xNum !== null && yNum !== null) return getQuad(xNum, yNum, t);
+    // Use the normalized translator (TT) so getQuad/labels never crash.
+    if (xNum !== null && yNum !== null) return getQuad(xNum, yNum, TT);
     const label = state?.daily?.today?.label ?? TT("daily.today", "오늘");
     const blurb = state?.daily?.today?.blurb ?? TT("daily.blurb", "시장 기울기 · 자금 흐름");
     return { label, blurb };
-  }, [state, t]);
+  }, [state, x, y, TT]);
 
   const topScenario = state?.daily?.top?.label ?? "—";
   const topP = typeof state?.daily?.top?.p === "number" ? state.daily.top.p : null;
