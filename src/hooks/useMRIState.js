@@ -285,6 +285,7 @@ try {
         cached: Boolean(latest?.cached),
         intraday: latest?.intraday ?? null,
         eventWindowActive: Boolean(latest?.eventWindowActive),
+        fetchedAt: new Date().toISOString(),
       },
     });
 
@@ -347,16 +348,8 @@ try {
     })();
 
     const onVis = () => {
-      const vis = document.visibilityState === "visible";
-      // UI timer tick rate
-      setUiTickMs(vis ? 1000 : 5000);
-
-      // Adjust polling cadence quickly on visibility changes
-      // (DeX/split-screen sometimes toggles focus/visibility states)
-      setPollMs(vis ? 300_000 : 600_000);
-
       // Refresh immediately when user comes back (prevents "stuck old data" feeling)
-      if (vis) {
+      if (document.visibilityState === "visible") {
         refreshLatest().catch(() => {});
         refreshCalendar().catch(() => {});
       }
@@ -385,22 +378,8 @@ try {
         const eventActive =
           Boolean(latest?.eventWindowActive) || isInEventWindow(now, events, 15).active;
 
-        const isVisible = document.visibilityState === "visible";
-
-// DeX / split-screen friendly: if not visible/focused, do NOT stop polling entirely.
-// Just slow it down to reduce battery/network while still keeping the app "alive".
-const HIDDEN_POLL_MS = 600_000; // 10 min
-const VISIBLE_POLL_MS = 300_000; // 5 min
-const EVENT_POLL_MS = 120_000;   // 2 min (event window)
-
-const desired = isVisible
-  ? (eventActive ? EVENT_POLL_MS : VISIBLE_POLL_MS)
-  : HIDDEN_POLL_MS;
-
-if (desired !== pollMs) {
-  logger.info("poll.interval_change", { from: pollMs, to: desired, isVisible, eventActive });
-  setPollMs(desired);
-}
+        const desired = eventActive ? 120_000 : 300_000;
+        if (desired !== pollMs) { logger.info('poll.interval_change',{from: pollMs, to: desired, eventActive}); setPollMs(desired); }
 
         await refreshLatest();
       } catch (e) {
@@ -413,8 +392,7 @@ if (desired !== pollMs) {
 
   // 3) UI timer state (for countdown display)
   const [nowMs, setNowMs] = useState(Date.now());
-  const [uiTickMs, setUiTickMs] = useState(document.visibilityState === "visible" ? 1000 : 5000);
-  useStableInterval(() => setNowMs(Date.now()), uiTickMs, true);
+  useStableInterval(() => setNowMs(Date.now()), 1000, true);
 
   const statusComputed = useMemo(() => {
     const latest = latestRef.current;
@@ -422,6 +400,8 @@ if (desired !== pollMs) {
 
     const asOfStr = meta?.asOf || latest?.asOf || null;
     const asOfDate = asOfStr ? toDateSafe(asOfStr) : null;
+    const fetchedAtStr = meta?.fetchedAt || latest?.fetchedAt || null;
+    const fetchedAtDate = fetchedAtStr ? toDateSafe(fetchedAtStr) : null;
 
     const latencyMin =
       (meta?.latencyMin ?? latest?.latencyMin) ??
@@ -439,17 +419,27 @@ if (desired !== pollMs) {
 
     const countdown = secs >= 3600 ? `${hh}:${mm}:${ss}` : `${mm}:${ss}`;
 
-    // top bar label: show asOf HH:MM if present; else fallback to latency pack
+    // top bar label priority:
+    // 1) fetchedAt (always reflects the *latest fetch attempt* on this device)
+    // 2) asOf (server/data timestamp)
+    // 3) latency bucket
+    const fetchedLabel = fetchedAtDate
+      ? `${String(fetchedAtDate.getHours()).padStart(2, "0")}:${String(fetchedAtDate.getMinutes()).padStart(2, "0")}`
+      : null;
+
     const asOfLabel = asOfDate
       ? `${String(asOfDate.getHours()).padStart(2, "0")}:${String(asOfDate.getMinutes()).padStart(2, "0")}`
       : null;
 
+    const topLabel = fetchedLabel ? `SYNC ${fetchedLabel}` : asOfLabel ? `DATA ${asOfLabel}` : tonePack.label;
+
     return {
       market: {
         tone: tonePack.tone,
-        label: asOfLabel ? `DATA ${asOfLabel}` : tonePack.label,
+        label: topLabel,
         latencyMin,
         asOf: asOfStr,
+        fetchedAt: fetchedAtStr,
       },
       timers: {
         nextUpdateInSec: secs,

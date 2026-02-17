@@ -29,7 +29,7 @@ html, body, #root {
 }
 
 body {
-  touch-action: none; /* navigation is swipe, not scroll */
+  touch-action: pan-y; /* navigation is swipe, not scroll */
   -ms-overflow-style: none;
   scrollbar-width: none;
 }

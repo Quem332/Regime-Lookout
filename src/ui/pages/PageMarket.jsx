@@ -1,121 +1,116 @@
-import React, { useMemo, useRef } from "react";
-import { PageDaily } from "./PageDaily";
-import { PageIntraday } from "./PageIntraday";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Card } from "../components/Card";
+import { isMarketOpenET } from "../../core/time.et";
 
-/**
- * Market page: no explicit tab buttons.
- * - Swipe left/right toggles Daily <-> Intraday.
- * - Tap empty space toggles (ignores taps on interactive elements).
- *
- * Props are controlled by MRIMarketDashboard:
- *  - api: MRI state from useMRIState()
- *  - tab: "daily" | "intraday"
- *  - setTab: setter
- *  - t: translator (function + groups)
- */
-export function PageMarket({ api, tab, setTab, t, topbarH = 56 }) {
-  const rootRef = useRef(null);
+function isTapLike(start, end) {
+  const dx = Math.abs((end?.x ?? 0) - (start?.x ?? 0));
+  const dy = Math.abs((end?.y ?? 0) - (start?.y ?? 0));
+  const dt = (end?.t ?? 0) - (start?.t ?? 0);
+  return dx < 10 && dy < 10 && dt < 400;
+}
 
-  const isIntraday = tab === "intraday";
-  const nextTab = isIntraday ? "daily" : "intraday";
+export function PageMarket({ api }) {
+  const mri = api?.mri;
+  const daily = mri?.daily || null;
+  const intraday = mri?.intraday || null;
+  const status = mri?.status || null;
 
-  const swipe = useMemo(() => {
-    return {
-      thresholdPx: 60,
-      startX: 0,
-      startY: 0,
-      moved: false,
-      pointerId: null,
-      startAt: 0,
-    };
+  // Two internal views inside MARKET:
+  // - daily: day-level view
+  // - intraday: live diagnostics (only meaningful during market hours)
+  const [view, setView] = useState("daily"); // "daily" | "intraday"
+
+  useEffect(() => {
+    // Default on first mount: if market is open and intraday exists -> intraday else daily
+    const open = isMarketOpenET();
+    const hasIntra = Boolean(intraday);
+    setView(open && hasIntra ? "intraday" : "daily");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const isInteractiveTarget = (target) => {
-    try {
-      if (!target || !(target instanceof Element)) return false;
-      return Boolean(
-        target.closest(
-          "button, a, input, textarea, select, option, label, summary, details, [role='button'], [role='link'], [data-no-tap-nav='1']"
-        )
-      );
-    } catch {
-      return false;
-    }
-  };
-
+  // tap-anywhere toggle
+  const downRef = useRef(null);
   const onPointerDown = (e) => {
-    if (e.pointerType === "mouse" && e.button !== 0) return;
-    swipe.pointerId = e.pointerId;
-    swipe.startX = e.clientX;
-    swipe.startY = e.clientY;
-    swipe.moved = false;
-    swipe.startAt = performance.now();
-
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {}
+    downRef.current = { x: e.clientX, y: e.clientY, t: performance.now() };
   };
-
-  const onPointerMove = (e) => {
-    if (swipe.pointerId !== e.pointerId) return;
-    const dx = e.clientX - swipe.startX;
-    const dy = e.clientY - swipe.startY;
-    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) swipe.moved = true;
-
-    // If it's clearly horizontal, prevent accidental browser nav/scroll.
-    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 12) {
-      // prevent default passive handling if any
-      try { e.preventDefault(); } catch {}
-    }
-  };
-
   const onPointerUp = (e) => {
-    if (swipe.pointerId !== e.pointerId) return;
-    swipe.pointerId = null;
-
-    const dx = e.clientX - swipe.startX;
-    const dy = e.clientY - swipe.startY;
-
-    const absX = Math.abs(dx);
-    const absY = Math.abs(dy);
-    const isHorizontal = absX > absY && absX >= swipe.thresholdPx;
-
-    if (isHorizontal) {
-      // swipe left => intraday, swipe right => daily (intuitive)
-      if (dx < 0) setTab("intraday");
-      else setTab("daily");
-      return;
-    }
-
-    // Tap-to-toggle: only if it's a real tap (little move) and not on interactive elements.
-    const tapLike = (!swipe.moved && absX < 8 && absY < 8);
-    if (tapLike && !isInteractiveTarget(e.target)) {
-      setTab(nextTab);
-    }
+    const start = downRef.current;
+    downRef.current = null;
+    const end = { x: e.clientX, y: e.clientY, t: performance.now() };
+    if (!start) return;
+    if (!isTapLike(start, end)) return;
+    setView((v) => (v === "daily" ? "intraday" : "daily"));
   };
 
-  const onPointerCancel = () => {
-    swipe.pointerId = null;
-  };
+  const marketLabel = status?.market?.label ?? "DATA --:--";
+
+  const intra = intraday || {};
+  const zShort = Number.isFinite(intra?.zShort) ? intra.zShort : null;
+  const corrAvg = Number.isFinite(intra?.corrAvg) ? intra.corrAvg : null;
+  const corrSurge = Boolean(intra?.corrSurge);
+
+  const score = Number.isFinite(daily?.score) ? daily.score : null;
+  const Cfinal = Number.isFinite(daily?.Cfinal) ? daily.Cfinal : null;
 
   return (
     <div
-      ref={rootRef}
-      className="h-full w-full overflow-hidden"
-      style={{ touchAction: "pan-y" }}
+      className="px-4 pb-6"
       onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      onPointerCancel={onPointerCancel}
+      style={{ touchAction: "pan-y" }}
     >
-      {/* Body */}
-      <div className="h-full w-full overflow-hidden">
-        {tab === "daily" ? (
-          <PageDaily state={api} t={t} topbarH={topbarH} />
-        ) : (
-          <PageIntraday state={api} t={t} topbarH={topbarH} />
-        )}
+      <div className="flex items-end justify-between mb-3">
+        <div>
+          <div className="text-xl font-bold tracking-tight text-white">MARKET</div>
+          <div className="text-sm text-white/70">{view === "daily" ? "Daily" : "Intraday"}</div>
+        </div>
+        <div className="text-right">
+          <div className="text-xs text-white/60">{marketLabel}</div>
+          <div className="text-xs text-white/60">Tap anywhere to toggle</div>
+        </div>
       </div>
+
+      {view === "daily" ? (
+        <div className="grid gap-3">
+          <Card title="Daily score" subtitle="From latest.json">
+            <div className="flex items-end gap-3">
+              <div className="text-4xl font-extrabold text-white">{score == null ? "--" : String(Math.round(score))}</div>
+              <div className="text-sm text-white/70 pb-1">C {Cfinal == null ? "--" : String(Math.round(Cfinal))}</div>
+            </div>
+          </Card>
+
+          <Card title="Inputs (Z)" subtitle="x, y, rates, usd, vix, goldFear">
+            <div className="text-xs text-white/70 whitespace-pre-wrap">
+              {daily?.V ? JSON.stringify(daily.V.map((v) => (Number.isFinite(v) ? Math.round(v * 100) / 100 : null)), null, 0) : "--"}
+            </div>
+          </Card>
+        </div>
+      ) : (
+        <div className="grid gap-3">
+          <Card title="Intraday diagnostics" subtitle="Fast signals">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-white/90">zShort</div>
+                <div className="text-sm text-white/70">{zShort == null ? "--" : zShort.toFixed(2)}</div>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-white/90">corrAvg</div>
+                <div className="text-sm text-white/70">{corrAvg == null ? "--" : corrAvg.toFixed(2)}</div>
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-white/90">corrSurge</div>
+                <div className="text-sm text-white/70">{corrSurge ? "YES" : "NO"}</div>
+              </div>
+            </div>
+          </Card>
+
+          <Card title="Note" subtitle="Market hours">
+            <div className="text-sm text-white/70 leading-relaxed">
+              Intraday view is most meaningful during US market hours. Off-hours the app defaults to Daily on first open.
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

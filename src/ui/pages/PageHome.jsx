@@ -1,164 +1,143 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Card } from "../components/Card";
-import { Gauge } from "../components/Gauge";
-import { TagList } from "../components/TagList";
-import { Modal } from "../components/Modal";
-import { useH3DragNav } from "../../hooks/useH3DragNav";
+import { Pill } from "../components/Pill";
 
-const SCENARIO_NAME = {
-  1: "Risk-On",
-  2: "Panic",
-  3: "Stagflation",
-  4: "Goldilocks",
-  5: "Defensive",
-  6: "Liquidity Crisis",
-  7: "Mixed",
-  "7A": "Risk-On (Capped)",
-  "7B": "Defensive (Capped)",
-  "7C": "Panic (Capped)",
-};
+function isTapLike(start, end) {
+  const dx = Math.abs((end?.x ?? 0) - (start?.x ?? 0));
+  const dy = Math.abs((end?.y ?? 0) - (start?.y ?? 0));
+  const dt = (end?.t ?? 0) - (start?.t ?? 0);
+  return dx < 10 && dy < 10 && dt < 400;
+}
 
+export function PageHome({ api }) {
+  const mri = api?.mri;
+  const daily = mri?.daily || null;
+  const status = mri?.status || null;
 
-export function PageHome({ api, tab, setTab, topbarH = 56 }) {
-  const daily = api?.daily ?? null;
-  const score = Number.isFinite(daily?.score) ? daily.score : 0;
-  const cFinal =
-    Number.isFinite(daily?.Cfinal) ? daily.Cfinal : Number.isFinite(daily?.C_final) ? daily.C_final : 0;
-  const topK = Number.isFinite(daily?.topK) ? daily.topK : null;
-  const probs = daily?.probs ?? {};
-  const tags = Array.isArray(daily?.tags) ? daily.tags : [];
+  // two internal views (A has 2 screens)
+  const [view, setView] = useState("overview"); // "overview" | "scenarios"
 
-  // Modal for long tag lists
-  const [showAllTags, setShowAllTags] = useState(false);
-
-  // Swipe between Overview <-> Scenarios (2-page)
-  const nav = useH3DragNav({
-    index: tab === "overview" ? 0 : 1,
-    onIndexChange: (i) => setTab(i === 0 ? "overview" : "scenarios"),
-    count: 2,
-  });
-
-  // Tap anywhere (non-interactive area) to toggle Overview/Scenarios
+  // tap-anywhere toggle (doesn't interfere with horizontal swipe; we only toggle on true taps)
   const downRef = useRef(null);
   const onPointerDown = (e) => {
-    if (e?.target?.closest?.("button,a,input,textarea,select,label")) return;
     downRef.current = { x: e.clientX, y: e.clientY, t: performance.now() };
   };
   const onPointerUp = (e) => {
-    const d = downRef.current;
+    const start = downRef.current;
     downRef.current = null;
-    if (!d) return;
-    const dx = Math.abs((e.clientX ?? 0) - d.x);
-    const dy = Math.abs((e.clientY ?? 0) - d.y);
-    const dt = performance.now() - d.t;
-    if (dx <= 8 && dy <= 8 && dt < 350) {
-      setTab((prev) => (prev === "overview" ? "scenarios" : "overview"));
-    }
+    const end = { x: e.clientX, y: e.clientY, t: performance.now() };
+    if (!start) return;
+    if (!isTapLike(start, end)) return;
+    setView((v) => (v === "overview" ? "scenarios" : "overview"));
   };
 
-  const topTags = useMemo(() => (Array.isArray(tags) ? tags.slice(0, 4) : []), [tags]);
-  const hasMoreTags = Array.isArray(tags) && tags.length > topTags.length;
+  const score = Number.isFinite(daily?.score) ? daily.score : null;
+  const Cfinal = Number.isFinite(daily?.Cfinal) ? daily.Cfinal : null;
+  const regime7 = daily?.regime7 ?? "7C";
+  const topK = daily?.topK ?? null;
 
-  const scenarios = useMemo(() => {
-    // Normalize to [{k,name,p}] from either probs object or array.
-    // Expected keys: 1..7 (incl 7A/7B/7C may be strings)
-    const out = [];
-    if (Array.isArray(daily?.scenarioList)) {
-      return daily.scenarioList;
-    }
-    if (Array.isArray(daily?.probsArray)) {
-      return daily.probsArray;
-    }
-    if (probs && typeof probs === "object") {
-      for (const [k, p] of Object.entries(probs)) {
-        out.push({ k, p });
-      }
-    }
-    // map scenario ids to stable display names (never depend on topK shape)
-    return out
-      .map((s) => ({ ...s, name: SCENARIO_NAME[String(s.k)] || s.name || ("Scenario " + s.k) }))
-      .sort((a, b) => (b.p ?? 0) - (a.p ?? 0));
-  }, [daily, probs]);
+  const probs = daily?.probs && typeof daily.probs === "object" ? daily.probs : {};
+  const probList = useMemo(() => {
+    return Object.entries(probs)
+      .filter(([, v]) => typeof v === "number" && Number.isFinite(v))
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+  }, [daily?.probs]);
+
+  const tags = Array.isArray(daily?.tags) ? daily.tags : [];
+
+  const countdown = status?.timers?.countdown ?? "--:--";
+  const marketLabel = status?.market?.label ?? "DATA --:--";
 
   return (
     <div
-      className="h-full w-full px-4 pb-6 overflow-y-auto flex flex-col gap-3"
-      style={{ paddingTop: topbarH + 10, touchAction: "pan-y" }}
+      className="px-4 pb-6"
       onPointerDown={onPointerDown}
       onPointerUp={onPointerUp}
-      {...nav.bind}
+      style={{ touchAction: "pan-y" }}
     >
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-xs opacity-70">{tab === "overview" ? "Overview" : "Scenarios"}</div>
+      {/* Compact fixed header space handled in dashboard (pt-16). Keep local top spacing small */}
+      <div className="flex items-end justify-between mb-3">
+        <div>
+          <div className="text-xl font-bold tracking-tight text-white">HOME</div>
+          <div className="text-sm text-white/70">{view === "overview" ? "Today" : "Scenarios"}</div>
         </div>
-        <div className="text-xs opacity-70 shrink-0">C: {Math.round(cFinal)}</div>
+        <div className="text-right">
+          <div className="text-xs text-white/60">{marketLabel}</div>
+          <div className="text-xs text-white/60">NEXT {countdown}</div>
+        </div>
       </div>
 
-      {tab === "overview" ? (
-        <>
-          <Card className="flex-1 flex flex-col">
-            <div className="flex items-center justify-between">
-              <div className="text-sm opacity-80">Today Score</div>
-              <div className="text-xs opacity-60">(0–100)</div>
+      {view === "overview" ? (
+        <div className="grid gap-3">
+          <Card title="Score" subtitle="Risk-adjusted confidence">
+            <div className="flex items-end gap-3">
+              <div className="text-4xl font-extrabold text-white">
+                {score == null ? "--" : String(Math.round(score))}
+              </div>
+              <div className="text-sm text-white/70 pb-1">
+                C {Cfinal == null ? "--" : String(Math.round(Cfinal))}
+              </div>
+              <div className="text-sm text-white/70 pb-1">
+                Regime {String(regime7)}
+              </div>
             </div>
-            <div className="mt-2 flex-1 flex items-center justify-center">
-              <Gauge value={score} />
-            </div>
-          </Card>
-
-          <Card className="shrink-0">
-            <div className="flex items-center justify-between">
-              <div className="text-sm opacity-80">Reasoning</div>
-              {hasMoreTags ? (
-                <button className="text-xs underline opacity-70" onClick={() => setShowAllTags(true)}>
-                  More
-                </button>
-              ) : null}
-            </div>
-            <div className="mt-2">
-              <TagList tags={topTags} compact />
+            <div className="mt-2 text-xs text-white/60">
+              Tap anywhere to toggle Overview ↔ Scenarios
             </div>
           </Card>
 
-          <Modal open={showAllTags} onClose={() => setShowAllTags(false)} title="All Reasoning Tags">
-            <TagList tags={tags} />
-          </Modal>
-        </>
-      ) : (
-        <>
-          <Card className="flex-1 overflow-hidden">
-            <div className="text-sm opacity-80">Scenario probabilities</div>
-            <div className="mt-2 text-xs opacity-60">(p = distance-softmax; C = reliability cap)
+          <Card title="Top scenario" subtitle="Most likely today">
+            <div className="text-lg text-white">
+              {topK == null ? "--" : `S${String(topK)}`}
             </div>
-            <div className="mt-3 flex flex-col gap-2">
-              {scenarios.slice(0, 7).map((s) => (
-                <div key={String(s.k)} className="flex items-center justify-between rounded-xl bg-slate-900/50 px-3 py-2">
-                  <div className="min-w-0">
-                    <div className="text-sm truncate">{s.name || `Scenario ${s.k}`}</div>
-                    <div className="text-[11px] opacity-60">k = {String(s.k)}</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm">{Math.round((s.p ?? 0) * 100)}%</div>
-                    <div className="text-[11px] opacity-60">C {Math.round(cFinal)}</div>
-                  </div>
-                </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {probList.slice(0, 3).map(([k, v]) => (
+                <span key={k} className="text-xs px-2 py-1 rounded-full bg-white/10 text-white/80">
+                  {k}: {(v * 100).toFixed(0)}%
+                </span>
               ))}
             </div>
           </Card>
 
-          <Card className="shrink-0">
-            <div className="text-sm opacity-80">Top regime</div>
-            <div className="mt-1 text-xs opacity-70">
-              {(
-                daily?.regime7 ||
-                daily?.regimeLabel ||
-                daily?.regime ||
-                "-"
-              ) + (daily?.regimeReason ? ` — ${daily.regimeReason}` : "")}
+          <Card title="Reasoning tags" subtitle="Key drivers">
+            <div className="flex flex-wrap gap-2">
+              {tags.length ? (
+                tags.map((x, i) => (
+                  <span key={i} className="text-xs px-2 py-1 rounded-full bg-white/10 text-white/80">
+                    {x}
+                  </span>
+                ))
+              ) : (
+                <span className="text-xs text-white/60">--</span>
+              )}
             </div>
           </Card>
-        </>
+        </div>
+      ) : (
+        <div className="grid gap-3">
+          <Card title="Scenario probabilities" subtitle="Top 5">
+            <div className="space-y-2">
+              {probList.length ? (
+                probList.map(([k, v]) => (
+                  <div key={k} className="flex items-center justify-between">
+                    <div className="text-sm text-white/90">{k}</div>
+                    <div className="text-sm text-white/70">{(v * 100).toFixed(1)}%</div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-sm text-white/60">No probabilities available.</div>
+              )}
+            </div>
+          </Card>
+
+          <Card title="Notes" subtitle="7C path behavior">
+            <div className="text-sm text-white/70 leading-relaxed">
+              If no scenario passes hard gates, the engine labels today as <b>7C</b>. In that case we still show a
+              normalized probability distribution so the UI can render a score + top scenario consistently.
+            </div>
+          </Card>
+        </div>
       )}
     </div>
   );

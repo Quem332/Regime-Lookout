@@ -14,61 +14,31 @@ function detectLang() {
   }
 }
 
-function safeHubDict(baseMaybe) {
-  // Some parts of the app used `t` as a function in older builds.
-  // If someone passes a function here, ignore it and fall back to our dictionaries.
-  const baseObj =
-    baseMaybe && typeof baseMaybe === "object" && !Array.isArray(baseMaybe) ? baseMaybe : null;
-
-  const fallback = I18N?.en?.hub || {};
-  const hub = (baseObj?.hub && typeof baseObj.hub === "object") ? baseObj.hub : null;
-
-  // Provide stable keys used by this UI (prevents runtime crashes on missing i18n keys)
-  return {
-    title: hub?.title ?? fallback?.title ?? "Hub",
-    subtitle: hub?.subtitle ?? fallback?.subtitle ?? "Utilities & info",
-    debugTitle: hub?.debugTitle ?? fallback?.debugTitle ?? "Debug",
-    debugSubtitle: hub?.debugSubtitle ?? fallback?.debugSubtitle ?? "Logs / reset local cache",
-    openLogs: hub?.openLogs ?? fallback?.openLogs ?? "Open logs",
-    clearLocal: hub?.clearLocal ?? fallback?.clearLocal ?? "Clear local storage",
-    cleared: hub?.cleared ?? fallback?.cleared ?? "Cleared.",
-    aboutTitle: hub?.aboutTitle ?? fallback?.aboutTitle ?? "About",
-    aboutSubtitle: hub?.aboutSubtitle ?? fallback?.aboutSubtitle ?? "What this app is",
-    aboutLine1: hub?.aboutLine1 ?? fallback?.aboutLine1 ?? "Regime-Lookout is a market regime interpretation dashboard.",
-    aboutLine2: hub?.aboutLine2 ?? fallback?.aboutLine2 ?? "It is not financial advice and does not recommend trades.",
-    logsTitle: hub?.logsTitle ?? fallback?.logsTitle ?? "Debug logs",
-    copy: hub?.copy ?? fallback?.copy ?? "Copy",
-    close: hub?.close ?? fallback?.close ?? "Close",
-  };
+function fmtNum(x, d = 2) {
+  return typeof x === "number" && Number.isFinite(x) ? x.toFixed(d) : "--";
 }
 
-export function PageHub({ api, t: tProp, topbarH = 56 }) {
+export function PageHub({ api, t: tProp }) {
+  // fallback: if parent doesn't pass t
   const lang = detectLang();
-
-  const baseDict = useMemo(() => {
-    // If parent passes a dict, use it. Otherwise select by language.
-    const picked = lang === "ko" ? I18N?.ko : I18N?.en;
-    return (tProp && typeof tProp === "object") ? tProp : picked;
+  const t = useMemo(() => {
+    const base = tProp ?? (lang === "ko" ? I18N.ko : I18N.en);
+    return { ...base, hub: base?.hub ?? I18N.en.hub };
   }, [tProp, lang]);
 
-  const hub = useMemo(() => safeHubDict(baseDict), [baseDict]);
+  const hub = t.hub;
 
   const [open, setOpen] = useState(false);
   const [logText, setLogText] = useState("");
 
-  // NOTE: optional-call (?.()) only guards null/undefined, not "callable".
-  // If a bundler or a prop mistake turns getSnapshot into a non-function, it would crash with
-  // "... is not a function". So we hard-guard callability here.
-  const logsFromApi =
-    typeof api?.logger?.getSnapshot === "function" ? api.logger.getSnapshot() : null;
+  const logs = api?.logger?.getSnapshot?.() ?? null;
 
   const onOpenLogs = () => {
     try {
       const snap =
         (typeof logger?.getSnapshot === "function" && logger.getSnapshot()) ||
-        logsFromApi ||
+        logs ||
         null;
-
       const text = snap != null ? JSON.stringify(snap, null, 2) : "No logs available.";
       setLogText(text);
       setOpen(true);
@@ -78,27 +48,57 @@ export function PageHub({ api, t: tProp, topbarH = 56 }) {
     }
   };
 
-  const copyLogs = async () => {
+  const copyText = async (text) => {
     try {
-      await navigator.clipboard.writeText(logText || "");
+      await navigator.clipboard.writeText(text || "");
     } catch (e) {
       alert(`Copy failed: ${e?.message ?? String(e)}`);
     }
   };
 
+  const copyLogs = async () => copyText(logText || "");
+
+  // NEW: copy the current score pack (corner button request)
+  const onCopyScores = async () => {
+    const daily = api?.mri?.daily ?? null;
+    const status = api?.mri?.status ?? null;
+
+    const probs = daily?.probs && typeof daily.probs === "object" ? daily.probs : {};
+    const top = Object.entries(probs)
+      .filter(([, v]) => typeof v === "number" && Number.isFinite(v))
+      .sort((a, b) => b[1] - a[1])[0];
+
+    const lines = [
+      `Regime-Lookout`,
+      `SYNC: ${status?.market?.label ?? "--"}`,
+      `asOf: ${daily?.meta?.asOf ?? daily?.meta?.asOfStr ?? daily?.meta?.asOf ?? status?.market?.asOf ?? "--"}`,
+      `score: ${daily?.score != null ? Math.round(daily.score) : "--"}`,
+      `Cfinal: ${daily?.Cfinal != null ? Math.round(daily.Cfinal) : "--"}`,
+      `regime7: ${daily?.regime7 ?? "--"}`,
+      `top: ${top ? `${top[0]} ${(top[1] * 100).toFixed(1)}%` : "--"}`,
+      `corrAvg: ${fmtNum(daily?.corrAvgDaily, 2)}`,
+      `V: ${Array.isArray(daily?.V) ? daily.V.map((v) => fmtNum(v, 2)).join(", ") : "--"}`,
+      `tags: ${Array.isArray(daily?.tags) ? daily.tags.join(", ") : "--"}`,
+    ];
+
+    await copyText(lines.join("\n"));
+  };
+
   return (
-    <div className="page" style={{ paddingTop: topbarH + 10, overflowY: "auto", touchAction: "pan-y" }}>
-      <div className="pageHeader">
-        <div className="pageTitle">{hub.title}</div>
-        <div className="pageSubtitle">{hub.subtitle}</div>
+    <div className="px-4 pb-6" style={{ touchAction: "pan-y" }}>
+      <div className="flex items-end justify-between mb-3">
+        <div>
+          <div className="text-xl font-bold tracking-tight text-white">MRI HUB</div>
+          <div className="text-sm text-white/70">Utilities &amp; info</div>
+        </div>
+
+        {/* corner copy button */}
+        <Pill onClick={onCopyScores}>Copy Scores</Pill>
       </div>
 
-      <div className="grid">
-        <Card>
-          <div className="cardTitle">{hub.debugTitle}</div>
-          <div className="cardSubtitle">{hub.debugSubtitle}</div>
-
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12 }}>
+      <div className="grid gap-3">
+        <Card title={hub.debugTitle} subtitle={hub.debugSubtitle}>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <Pill onClick={onOpenLogs}>{hub.openLogs}</Pill>
             <Pill
               onClick={() => {
@@ -112,11 +112,8 @@ export function PageHub({ api, t: tProp, topbarH = 56 }) {
           </div>
         </Card>
 
-        <Card>
-          <div className="cardTitle">{hub.aboutTitle}</div>
-          <div className="cardSubtitle">{hub.aboutSubtitle}</div>
-
-          <div style={{ lineHeight: 1.5, marginTop: 12 }}>
+        <Card title={hub.aboutTitle} subtitle={hub.aboutSubtitle}>
+          <div style={{ lineHeight: 1.5 }}>
             <div>{hub.aboutLine1}</div>
             <div style={{ marginTop: 8 }}>{hub.aboutLine2}</div>
           </div>

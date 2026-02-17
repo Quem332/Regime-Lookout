@@ -35,35 +35,47 @@ export function euclid(V, S) {
 }
 
 export function computeProbabilitiesSpec(V) {
+  const keysAll = Object.keys(SCENARIOS);
+
+  // 1) Gate pass keys
   const passed = [];
-  for (const k of Object.keys(SCENARIOS)) {
+  for (const k of keysAll) {
     if (hardGatePass(k, V)) passed.push(k);
   }
 
-  if (passed.length === 0) {
-    // 7C path; still return all zeros
-    const zeros = {};
-    for (const k of Object.keys(SCENARIOS)) zeros[k] = 0;
-    return { probs: zeros, passedKeys: [] };
+  // 2) Candidate set for probability calculation:
+  //    - Normal: only passed keys
+  //    - 7C path (none passed): use ALL keys to avoid a 0-sum distribution
+  const cand = passed.length > 0 ? passed : keysAll;
+
+  // 3) Softmax over distances -> probability
+  const distMap = {};
+  for (const k of cand) distMap[k] = scenarioDistance(k, V);
+
+  const raw = {};
+  for (const k of cand) {
+    const d = distMap[k];
+    // smaller distance => larger prob
+    raw[k] = Number.isFinite(d) ? Math.exp(-d) : 0;
   }
 
-  const distMap = {};
-  for (const k of passed) distMap[k] = euclid(V, SCENARIOS[k].vector);
+  // Normalize safely
+  const sum = Object.values(raw).reduce((a, b) => a + (Number.isFinite(b) ? b : 0), 0);
 
-  let probs = softmaxFromNegDistance(distMap);
+  const probs = {};
+  for (const k of keysAll) probs[k] = 0;
 
-  // Conflict resolution (spec)
-  if ((probs["4"] ?? 0) > 0.5) probs["5"] = 0;
-  if ((probs["5"] ?? 0) > 0 && V[2] >= 0.8) probs["5"] = (probs["5"] ?? 0) * 0.5;
+  if (sum <= 0 || !Number.isFinite(sum)) {
+    // final fallback: uniform distribution across all scenarios
+    const u = 1 / Math.max(1, keysAll.length);
+    for (const k of keysAll) probs[k] = u;
+  } else {
+    for (const k of cand) probs[k] = raw[k] / sum;
+  }
 
-  probs = renormalize(probs);
-
-  // fill missing keys with 0 for UI consistency
-  const full = {};
-  for (const k of Object.keys(SCENARIOS)) full[k] = probs[k] ?? 0;
-
-  return { probs: full, passedKeys: passed };
+  return { probs, passedKeys: passed };
 }
+
 
 export function entropyConcentrationH(probs) {
   // Proxy for "concentration" because true Top10 H is unavailable in mock.
