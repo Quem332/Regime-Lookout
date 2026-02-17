@@ -116,7 +116,7 @@ function getQuad(x, y, t) {
   };
 }
 
-export function PageDaily({ state, t }) {
+export function PageDaily({ state, t, topbarH = 56 }) {
   // Ensure `t` is always callable.
   const lang = detectLang();
   const TT = useMemo(() => {
@@ -141,7 +141,10 @@ export function PageDaily({ state, t }) {
   const topP = typeof state?.daily?.top?.p === "number" ? state.daily.top.p : null;
 
   return (
-    <div className="h-screen overflow-hidden flex flex-col gap-3 px-4 pt-4 pb-3">
+    <div
+      className="h-full overflow-y-auto flex flex-col gap-3 px-4 pb-6"
+      style={{ paddingTop: topbarH + 10, touchAction: "pan-y" }}
+    >
       <div className="grid grid-cols-2 gap-3" style={{ gridTemplateRows: "minmax(180px, 1fr)" }}>
         <Card className="p-3">
           <div className="text-xs text-white/60 mb-2">{TT("daily.anchor", "일봉 앵커")}</div>

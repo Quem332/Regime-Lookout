@@ -21,6 +21,7 @@ function detectLang() {
 }
 
 export function MRIMarketDashboard() {
+  const TOPBAR_H = 56; // px
   const api = useMRIState();
   const status = api?.status ?? {};
   const market = status?.market ?? {};
@@ -65,9 +66,9 @@ export function MRIMarketDashboard() {
 
   const pages = useMemo(
     () => [
-      <PageHome key="home" api={api} tab={homeTab} setTab={setHomeTab} t={t} />,
-      <PageMarket key="market" api={api} tab={marketTab} setTab={setMarketTab} t={t} />,
-      <PageHub key="hub" api={api} t={t} />,
+      <PageHome key="home" api={api} tab={homeTab} setTab={setHomeTab} t={t} topbarH={TOPBAR_H} />,
+      <PageMarket key="market" api={api} tab={marketTab} setTab={setMarketTab} t={t} topbarH={TOPBAR_H} />,
+      <PageHub key="hub" api={api} t={t} topbarH={TOPBAR_H} />,
     ],
     [api, homeTab, marketTab, t]
   );
@@ -89,18 +90,30 @@ export function MRIMarketDashboard() {
   return (
     <div className="relative h-[100dvh] w-[100dvw] overflow-hidden bg-slate-950 text-white select-none">
       {/* Top status bar */}
-      <div className="absolute left-0 right-0 top-0 z-40 flex items-center justify-between px-4 py-3">
-        <div className="min-w-0">
-          <div className="text-lg font-semibold leading-tight">{title}</div>
-          <div className="text-xs opacity-70">{subtitle}</div>
-        </div>
-        <div className="flex items-center gap-2">
-          <StatusPill market={status?.market} timers={status?.timers} />
+      <div
+        className="absolute left-0 right-0 top-0 z-40 border-b border-white/10 bg-slate-950/95"
+        style={{ height: TOPBAR_H }}
+      >
+        <div className="h-full px-3 py-2 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold tracking-wide leading-none truncate">{title}</div>
+            <div className="text-xs opacity-70 leading-none truncate" style={{ marginTop: 6 }}>
+              {subtitle}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <StatusPill market={status?.market} timers={status?.timers} />
+          </div>
         </div>
       </div>
 
       {/* Viewport */}
-      <div {...nav.bind} className="h-full w-full" style={{ touchAction: "none" }}>
+      <div
+        {...nav.bind}
+        className="h-full w-full"
+        // Allow vertical pan (short screens / DeX resize). Horizontal swipe is handled by our hook.
+        style={{ touchAction: "pan-y" }}
+      >
         <div
           className="flex h-full"
           style={{

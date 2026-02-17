@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { Card } from "../components/Card";
 import { Gauge } from "../components/Gauge";
 import { TagList } from "../components/TagList";
 import { Modal } from "../components/Modal";
+import { useH3DragNav } from "../../hooks/useH3DragNav";
 
 const SCENARIO_NAME = {
   1: "Risk-On",
@@ -18,30 +19,42 @@ const SCENARIO_NAME = {
 };
 
 
-function TabButton({ active, onClick, children }) {
-  return (
-    <button
-      onClick={onClick}
-      className={
-        "px-3 py-2 rounded-xl text-sm " +
-        (active ? "bg-slate-800/80" : "bg-slate-900/40 opacity-80 hover:opacity-100")
-      }
-    >
-      {children}
-    </button>
-  );
-}
-
-export function PageHome({ api, tab, setTab }) {
+export function PageHome({ api, tab, setTab, topbarH = 56 }) {
   const daily = api?.daily ?? null;
-  const score = daily?.score ?? 0;
-  const cFinal = daily?.reliability?.C_final ?? daily?.C_final ?? 0;
+  const score = Number.isFinite(daily?.score) ? daily.score : 0;
+  const cFinal =
+    Number.isFinite(daily?.Cfinal) ? daily.Cfinal : Number.isFinite(daily?.C_final) ? daily.C_final : 0;
   const topK = Number.isFinite(daily?.topK) ? daily.topK : null;
   const probs = daily?.probs ?? {};
   const tags = Array.isArray(daily?.tags) ? daily.tags : [];
 
   // Modal for long tag lists
   const [showAllTags, setShowAllTags] = useState(false);
+
+  // Swipe between Overview <-> Scenarios (2-page)
+  const nav = useH3DragNav({
+    index: tab === "overview" ? 0 : 1,
+    onIndexChange: (i) => setTab(i === 0 ? "overview" : "scenarios"),
+    count: 2,
+  });
+
+  // Tap anywhere (non-interactive area) to toggle Overview/Scenarios
+  const downRef = useRef(null);
+  const onPointerDown = (e) => {
+    if (e?.target?.closest?.("button,a,input,textarea,select,label")) return;
+    downRef.current = { x: e.clientX, y: e.clientY, t: performance.now() };
+  };
+  const onPointerUp = (e) => {
+    const d = downRef.current;
+    downRef.current = null;
+    if (!d) return;
+    const dx = Math.abs((e.clientX ?? 0) - d.x);
+    const dy = Math.abs((e.clientY ?? 0) - d.y);
+    const dt = performance.now() - d.t;
+    if (dx <= 8 && dy <= 8 && dt < 350) {
+      setTab((prev) => (prev === "overview" ? "scenarios" : "overview"));
+    }
+  };
 
   const topTags = useMemo(() => (Array.isArray(tags) ? tags.slice(0, 4) : []), [tags]);
   const hasMoreTags = Array.isArray(tags) && tags.length > topTags.length;
@@ -68,13 +81,18 @@ export function PageHome({ api, tab, setTab }) {
   }, [daily, probs]);
 
   return (
-    <div className="h-full w-full pt-16 px-4 pb-4 overflow-hidden flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <div className="flex gap-2">
-          <TabButton active={tab === "overview"} onClick={() => setTab("overview")}>Overview</TabButton>
-          <TabButton active={tab === "scenarios"} onClick={() => setTab("scenarios")}>Scenarios</TabButton>
+    <div
+      className="h-full w-full px-4 pb-6 overflow-y-auto flex flex-col gap-3"
+      style={{ paddingTop: topbarH + 10, touchAction: "pan-y" }}
+      onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
+      {...nav.bind}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-xs opacity-70">{tab === "overview" ? "Overview" : "Scenarios"}</div>
         </div>
-        <div className="text-xs opacity-70">C: {Math.round(cFinal)}</div>
+        <div className="text-xs opacity-70 shrink-0">C: {Math.round(cFinal)}</div>
       </div>
 
       {tab === "overview" ? (
@@ -132,7 +150,12 @@ export function PageHome({ api, tab, setTab }) {
           <Card className="shrink-0">
             <div className="text-sm opacity-80">Top regime</div>
             <div className="mt-1 text-xs opacity-70">
-              {(daily?.regimeLabel || daily?.regime || "-") + (daily?.regimeReason ? ` — ${daily.regimeReason}` : "")}
+              {(
+                daily?.regime7 ||
+                daily?.regimeLabel ||
+                daily?.regime ||
+                "-"
+              ) + (daily?.regimeReason ? ` — ${daily.regimeReason}` : "")}
             </div>
           </Card>
         </>

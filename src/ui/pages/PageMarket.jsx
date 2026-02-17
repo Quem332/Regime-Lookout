@@ -13,7 +13,7 @@ import { PageIntraday } from "./PageIntraday";
  *  - setTab: setter
  *  - t: translator (function + groups)
  */
-export function PageMarket({ api, tab, setTab, t }) {
+export function PageMarket({ api, tab, setTab, t, topbarH = 56 }) {
   const rootRef = useRef(null);
 
   const isIntraday = tab === "intraday";
@@ -111,9 +111,9 @@ export function PageMarket({ api, tab, setTab, t }) {
       {/* Body */}
       <div className="h-full w-full overflow-hidden">
         {tab === "daily" ? (
-          <PageDaily state={api} t={t} />
+          <PageDaily state={api} t={t} topbarH={topbarH} />
         ) : (
-          <PageIntraday state={api} t={t} />
+          <PageIntraday state={api} t={t} topbarH={topbarH} />
         )}
       </div>
     </div>

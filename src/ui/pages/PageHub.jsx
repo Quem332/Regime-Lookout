@@ -42,7 +42,7 @@ function safeHubDict(baseMaybe) {
   };
 }
 
-export function PageHub({ api, t: tProp }) {
+export function PageHub({ api, t: tProp, topbarH = 56 }) {
   const lang = detectLang();
 
   const baseDict = useMemo(() => {
@@ -87,7 +87,7 @@ export function PageHub({ api, t: tProp }) {
   };
 
   return (
-    <div className="page">
+    <div className="page" style={{ paddingTop: topbarH + 10, overflowY: "auto", touchAction: "pan-y" }}>
       <div className="pageHeader">
         <div className="pageTitle">{hub.title}</div>
         <div className="pageSubtitle">{hub.subtitle}</div>
