@@ -18,7 +18,7 @@ function TabButton({ active, onClick, children }) {
   );
 }
 
-export function PageMarket({ mri }) {
+export function PageMarket({ mri, t }) {
   const [tab, setTab] = useState("daily");
 
   return (
@@ -39,7 +39,7 @@ export function PageMarket({ mri }) {
       </div>
 
       <div className="flex-1 min-h-0 overflow-hidden">
-        {tab === "daily" ? <PageDaily mri={mri} /> : <PageIntraday mri={mri} />}
+        {tab === "daily" ? <PageDaily state={mri} t={t} /> : <PageIntraday state={mri} t={t} />}
       </div>
     </div>
   );

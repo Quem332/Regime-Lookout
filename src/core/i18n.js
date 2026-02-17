@@ -168,3 +168,52 @@ export const I18N = {
     },
   },
 };
+
+// -----------------------------------------------------------------------------
+// createT(dict):
+// Many pages historically used `t("key")` (function), while some newer pages
+// access structured groups like `t.hub.title` (object).
+//
+// To keep compatibility (and avoid runtime crashes like "t is not a function"),
+// we expose a translator function that also carries the raw dictionary as
+// properties.
+// -----------------------------------------------------------------------------
+export function createT(dict) {
+  const safeDict = (dict && typeof dict === "object") ? dict : I18N.en;
+
+  const t = (key, fallback = "") => {
+    try {
+      if (!key) return fallback;
+      const v = safeDict[key];
+      if (typeof v === "string") return v;
+      // allow nested access via dot notation: "hub.title"
+      if (typeof key === "string" && key.includes(".")) {
+        const parts = key.split(".");
+        let cur = safeDict;
+        for (const p of parts) {
+          if (!cur || typeof cur !== "object") return fallback || key;
+          cur = cur[p];
+        }
+        return (typeof cur === "string") ? cur : (fallback || key);
+      }
+      return fallback || key;
+    } catch {
+      return fallback || key;
+    }
+  };
+
+  // Expose structured groups (e.g. t.intraday.*, t.hub.*)
+  // and also allow direct access to any plain keys on the dictionary.
+  try {
+    Object.assign(t, safeDict);
+  } catch {
+    // ignore
+  }
+
+  // Attach groups for pages that do `t.hub.*`
+  // Functions are objects in JS, so this is safe.
+  t.dict = safeDict;
+  t.lang = safeDict === I18N.ko ? "ko" : "en";
+  t.hub = safeDict.hub || I18N.en.hub;
+  return t;
+}

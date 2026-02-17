@@ -9,10 +9,25 @@ import { PageHub } from "../ui/pages/PageHub";
 
 import { StatusPill } from "../ui/components/StatusPill";
 
+import { I18N, createT } from "../core/i18n";
+
+function detectLang() {
+  try {
+    const l = (navigator.language || "en").toLowerCase();
+    return l.startsWith("ko") ? "ko" : "en";
+  } catch {
+    return "en";
+  }
+}
+
 export function MRIMarketDashboard() {
   const api = useMRIState();
   const status = api?.status ?? {};
   const market = status?.market ?? {};
+
+  // Translator: function + attached groups (t.hub.*)
+  const lang = detectLang();
+  const t = useMemo(() => createT(lang === "ko" ? I18N.ko : I18N.en), [lang]);
 
   // Inner tabs
   const [homeTab, setHomeTab] = useState("overview"); // overview | scenarios
@@ -20,11 +35,11 @@ export function MRIMarketDashboard() {
 
   const pages = useMemo(
     () => [
-      <PageHome key="home" api={api} tab={homeTab} setTab={setHomeTab} />,
-      <PageMarket key="market" api={api} tab={marketTab} setTab={setMarketTab} />,
-      <PageHub key="hub" api={api} />,
+      <PageHome key="home" api={api} tab={homeTab} setTab={setHomeTab} t={t} />,
+      <PageMarket key="market" api={api} tab={marketTab} setTab={setMarketTab} t={t} />,
+      <PageHub key="hub" api={api} t={t} />,
     ],
-    [api, homeTab, marketTab]
+    [api, homeTab, marketTab, t]
   );
 
   const nav = useH3DragNav({ initialIndex: 0, thresholdPx: 90 });

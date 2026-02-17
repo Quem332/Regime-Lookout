@@ -4,6 +4,20 @@ import { Gauge } from "../components/Gauge";
 import { TagList } from "../components/TagList";
 import { Modal } from "../components/Modal";
 
+const SCENARIO_NAME = {
+  1: "Risk-On",
+  2: "Panic",
+  3: "Stagflation",
+  4: "Goldilocks",
+  5: "Defensive",
+  6: "Liquidity Crisis",
+  7: "Mixed",
+  "7A": "Risk-On (Capped)",
+  "7B": "Defensive (Capped)",
+  "7C": "Panic (Capped)",
+};
+
+
 function TabButton({ active, onClick, children }) {
   return (
     <button
@@ -22,9 +36,9 @@ export function PageHome({ api, tab, setTab }) {
   const daily = api?.daily ?? null;
   const score = daily?.score ?? 0;
   const cFinal = daily?.reliability?.C_final ?? daily?.C_final ?? 0;
-  const topK = daily?.topK ?? [];
+  const topK = Number.isFinite(daily?.topK) ? daily.topK : null;
   const probs = daily?.probs ?? {};
-  const tags = daily?.tags ?? [];
+  const tags = Array.isArray(daily?.tags) ? daily.tags : [];
 
   // Modal for long tag lists
   const [showAllTags, setShowAllTags] = useState(false);
@@ -47,16 +61,11 @@ export function PageHome({ api, tab, setTab }) {
         out.push({ k, p });
       }
     }
-    // if topK is present, enrich with names
-    const nameByK = {};
-    (topK || []).forEach((t) => {
-      if (!t) return;
-      nameByK[String(t.k ?? t.id ?? t.key ?? "")] = t.name || t.label || "";
-    });
+    // map scenario ids to stable display names (never depend on topK shape)
     return out
-      .map((s) => ({ ...s, name: nameByK[String(s.k)] || s.name || "Scenario " + s.k }))
+      .map((s) => ({ ...s, name: SCENARIO_NAME[String(s.k)] || s.name || ("Scenario " + s.k) }))
       .sort((a, b) => (b.p ?? 0) - (a.p ?? 0));
-  }, [daily, probs, topK]);
+  }, [daily, probs]);
 
   return (
     <div className="h-full w-full pt-16 px-4 pb-4 overflow-hidden flex flex-col gap-3">
