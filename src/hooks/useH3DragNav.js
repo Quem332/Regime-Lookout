@@ -12,7 +12,7 @@ import { useEffect, useRef, useState } from "react";
  * - bind: spread onto the viewport element
  * - index, dragX, isDragging, goTo/goLeft/goRight
  */
-export function useH3DragNav({ initialIndex = 0, thresholdPx = 80 } = {}) {
+export function useH3DragNav({ initialIndex = 0, thresholdPx = 80, tapToCycle = false } = {}) {
   const [index, setIndex] = useState(initialIndex);
   const [dragX, setDragX] = useState(0);
   const dragXRef = useRef(0);

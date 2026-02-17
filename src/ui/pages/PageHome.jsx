@@ -1,21 +1,27 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import { Card } from "../components/Card";
-import { Pill } from "../components/Pill";
 
-function isTapLike(start, end) {
-  const dx = Math.abs((end?.x ?? 0) - (start?.x ?? 0));
-  const dy = Math.abs((end?.y ?? 0) - (start?.y ?? 0));
-  const dt = (end?.t ?? 0) - (start?.t ?? 0);
-  return dx < 10 && dy < 10 && dt < 400;
+
+function isInteractiveTarget(el) {
+  try {
+    return Boolean(el?.closest?.('button, a, input, textarea, select, [role="button"], [data-stop-toggle="1"]'));
+  } catch {
+    return false;
+  }
 }
-
+function isTapLike(start, end, maxDist = 10, maxMs = 300) {
+  const dx = Math.abs(end.x - start.x);
+  const dy = Math.abs(end.y - start.y);
+  const dt = end.t - start.t;
+  return dx <= maxDist && dy <= maxDist && dt <= maxMs;
+}
 export function PageHome({ api }) {
   const mri = api?.mri;
   const daily = mri?.daily || null;
   const status = mri?.status || null;
 
   // two internal views (A has 2 screens)
-  const [view, setView] = useState("overview"); // "overview" | "scenarios"
+  const view = tab ?? "overview"; // "overview" | "scenarios"
 
   // tap-anywhere toggle (doesn't interfere with horizontal swipe; we only toggle on true taps)
   const downRef = useRef(null);
@@ -28,7 +34,7 @@ export function PageHome({ api }) {
     const end = { x: e.clientX, y: e.clientY, t: performance.now() };
     if (!start) return;
     if (!isTapLike(start, end)) return;
-    setView((v) => (v === "overview" ? "scenarios" : "overview"));
+    setTab?.((v) => (v === "overview" ? "scenarios" : "overview"));
   };
 
   const score = Number.isFinite(daily?.score) ? daily.score : null;

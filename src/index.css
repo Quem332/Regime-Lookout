@@ -37,3 +37,21 @@ body {
 body::-webkit-scrollbar {
   display: none;
 }
+
+
+/* ===== MRI Dashboard layout fixes (mobile short-height safe) ===== */
+.dash {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.dashTop {
+  flex: 0 0 auto;
+  padding-top: env(safe-area-inset-top);
+}
+.dashBody {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: env(safe-area-inset-bottom);
+}

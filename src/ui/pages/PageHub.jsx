@@ -93,7 +93,7 @@ export function PageHub({ api, t: tProp }) {
         </div>
 
         {/* corner copy button */}
-        <Pill onClick={onCopyScores}>Copy Scores</Pill>
+        <Pill data-stop-toggle="1" onClick={(e)=>{ e.stopPropagation(); onCopyScores(); }}>Copy Scores</Pill>
       </div>
 
       <div className="grid gap-3">

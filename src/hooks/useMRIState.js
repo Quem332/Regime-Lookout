@@ -105,6 +105,11 @@ async function fetchJson(url, { timeoutMs = 12_000, retries = 2 } = {}) {
   throw lastErr ?? new Error(`fetch failed @ ${url}`);
 }
 
+function num(x, fallback = 0) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 // Event calendar: { "events":[{"date":"YYYY-MM-DD","time":"HH:MM","name":"CPI"}] }
 function parseCalendar(cal) {
   const events = Array.isArray(cal?.events) ? cal.events : [];
@@ -156,7 +161,7 @@ export function useMRIState() {
 
   const buildDailyFromFeatures = ({ featuresZ, meta }) => {
     const started = performance.now();
-    const V = [featuresZ.x, featuresZ.y, featuresZ.rates, featuresZ.usd, featuresZ.vix, featuresZ.goldFear];
+    const V = [featuresZ.x, featuresZ.y, featuresZ.rates, featuresZ.usd, featuresZ.vix, featuresZ.goldFear].map((v) => num(v, 0));
 
     const latencyMin = meta?.latencyMin ?? meta?.latencyMinutes ?? meta?.latency ?? null;
 const healthLevel = meta?.dataHealth?.level ?? meta?.dataHealthLevel ?? null;
