@@ -347,8 +347,16 @@ try {
     })();
 
     const onVis = () => {
+      const vis = document.visibilityState === "visible";
+      // UI timer tick rate
+      setUiTickMs(vis ? 1000 : 5000);
+
+      // Adjust polling cadence quickly on visibility changes
+      // (DeX/split-screen sometimes toggles focus/visibility states)
+      setPollMs(vis ? 300_000 : 600_000);
+
       // Refresh immediately when user comes back (prevents "stuck old data" feeling)
-      if (document.visibilityState === "visible") {
+      if (vis) {
         refreshLatest().catch(() => {});
         refreshCalendar().catch(() => {});
       }
@@ -377,8 +385,22 @@ try {
         const eventActive =
           Boolean(latest?.eventWindowActive) || isInEventWindow(now, events, 15).active;
 
-        const desired = eventActive ? 120_000 : 300_000;
-        if (desired !== pollMs) { logger.info('poll.interval_change',{from: pollMs, to: desired, eventActive}); setPollMs(desired); }
+        const isVisible = document.visibilityState === "visible";
+
+// DeX / split-screen friendly: if not visible/focused, do NOT stop polling entirely.
+// Just slow it down to reduce battery/network while still keeping the app "alive".
+const HIDDEN_POLL_MS = 600_000; // 10 min
+const VISIBLE_POLL_MS = 300_000; // 5 min
+const EVENT_POLL_MS = 120_000;   // 2 min (event window)
+
+const desired = isVisible
+  ? (eventActive ? EVENT_POLL_MS : VISIBLE_POLL_MS)
+  : HIDDEN_POLL_MS;
+
+if (desired !== pollMs) {
+  logger.info("poll.interval_change", { from: pollMs, to: desired, isVisible, eventActive });
+  setPollMs(desired);
+}
 
         await refreshLatest();
       } catch (e) {
@@ -391,7 +413,8 @@ try {
 
   // 3) UI timer state (for countdown display)
   const [nowMs, setNowMs] = useState(Date.now());
-  useStableInterval(() => setNowMs(Date.now()), 1000, true);
+  const [uiTickMs, setUiTickMs] = useState(document.visibilityState === "visible" ? 1000 : 5000);
+  useStableInterval(() => setNowMs(Date.now()), uiTickMs, true);
 
   const statusComputed = useMemo(() => {
     const latest = latestRef.current;

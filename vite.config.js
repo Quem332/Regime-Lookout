@@ -2,10 +2,6 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
-/**
- * GitHub Pages project-site base path:
- *   https://<user>.github.io/<repo>/
- */
 const BASE = "/Regime-Lookout/";
 
 export default defineConfig({
@@ -14,16 +10,13 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-
-      // Assets copied from /public into dist/
+      devOptions: { enabled: false }, // disable SW in dev for stability
       includeAssets: [
         "icons/apple-touch-icon.png",
         "icons/icon-192.png",
         "icons/icon-512.png",
         "icons/icon-512-maskable.png",
-        ".nojekyll",
       ],
-
       manifest: {
         name: "Regime-Lookout",
         short_name: "Lookout",
@@ -35,8 +28,16 @@ export default defineConfig({
         background_color: "#0b0f14",
         theme_color: "#0b0f14",
         icons: [
-          { src: BASE + "icons/icon-192.png", sizes: "192x192", type: "image/png" },
-          { src: BASE + "icons/icon-512.png", sizes: "512x512", type: "image/png" },
+          {
+            src: BASE + "icons/icon-192.png",
+            sizes: "192x192",
+            type: "image/png",
+          },
+          {
+            src: BASE + "icons/icon-512.png",
+            sizes: "512x512",
+            type: "image/png",
+          },
           {
             src: BASE + "icons/icon-512-maskable.png",
             sizes: "512x512",
@@ -45,22 +46,16 @@ export default defineConfig({
           },
         ],
       },
-
-      /**
-       * IMPORTANT
-       * Workbox `urlPattern` functions are serialized into the service worker.
-       * Do NOT reference outer variables (like BASE) here, or you'll get
-       * "ReferenceError: BASE is not defined" at runtime.
-       */
       workbox: {
+        cleanupOutdatedCaches: true,
         runtimeCaching: [
           {
-            urlPattern: ({ url }) =>
-              url.pathname.includes("/data/") && url.pathname.endsWith(".json"),
+            // Use RegExp (NOT a function closure) to avoid "BASE is not defined" in sw.js
+            urlPattern: new RegExp("^/Regime\-Lookout/data/.*\\.json$"),
             handler: "NetworkFirst",
             options: {
               cacheName: "mri-json",
-              expiration: { maxEntries: 30, maxAgeSeconds: 60 * 60 * 24 * 7 },
+              networkTimeoutSeconds: 8,
             },
           },
         ],
