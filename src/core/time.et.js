@@ -10,13 +10,37 @@ export function getETNowParts() {
     hour12: false,
     weekday: "short",
   });
-  const parts = dtf.formatToParts(new Date());
-  const map = {};
-  for (const p of parts) map[p.type] = p.value;
-  // weekday not numeric; we’ll infer using Date in ET by reconstructing is tricky,
-  // so instead: approximate weekday via local Date but shift is unsafe.
-  // Better: format weekday and map.
-  const weekdayStr = map.weekday; // e.g. "Mon"
+  const now = new Date();
+
+  // Some WebViews / older engines expose Intl but not `formatToParts`.
+  // Use formatToParts when available; otherwise fall back to parsing `format()`.
+  let map = null;
+  try {
+    if (typeof dtf.formatToParts === "function") {
+      const parts = dtf.formatToParts(now);
+      map = {};
+      for (const p of parts) map[p.type] = p.value;
+    }
+  } catch {
+    map = null;
+  }
+
+  if (!map) {
+    // Example output (en-US): "Mon, 02/17/2026, 13:45"
+    // Parse defensively.
+    const s = String(dtf.format(now));
+    const m = s.match(/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat).*?(\d{2})\/(\d{2})\/(\d{4}).*?(\d{2}):(\d{2})/);
+    const weekdayStr = m?.[1] ?? "Sun";
+    const mo = Number(m?.[2] ?? 1);
+    const d = Number(m?.[3] ?? 1);
+    const y = Number(m?.[4] ?? 1970);
+    const hh = Number(m?.[5] ?? 0);
+    const mm = Number(m?.[6] ?? 0);
+    const weekdayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+    return { y, mo, d, hh, mm, dow: weekdayMap[weekdayStr] ?? 0 };
+  }
+
+  const weekdayStr = map.weekday;
   const weekdayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
   const dayOfWeek = weekdayMap[weekdayStr] ?? 0;
 
