@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { useMRIState } from "../hooks/useMRIState";
 import { useH3DragNav } from "../hooks/useH3DragNav";
@@ -31,7 +31,37 @@ export function MRIMarketDashboard() {
 
   // Inner tabs
   const [homeTab, setHomeTab] = useState("overview"); // overview | scenarios
-  const [marketTab, setMarketTab] = useState("daily"); // daily | intraday
+  const [marketTab, _setMarketTab] = useState("daily"); // daily | intraday
+
+  // Auto-select Market tab:
+  // - during market hours (or when intraday payload looks live) -> intraday
+  // - otherwise -> daily
+  // Only applies once per app boot, and never overrides user's manual choice.
+  const marketTabAutoDoneRef = useRef(false);
+  const marketTabUserSetRef = useRef(false);
+
+  const setMarketTab = (next) => {
+    marketTabUserSetRef.current = true;
+    _setMarketTab(next);
+  };
+
+  const looksLikeIntradayIsLive = useMemo(() => {
+    const i = api?.intraday;
+    // Heuristics: intervalUsed or prices payload suggests "live" intraday.
+    if (!i) return false;
+    if (i?.intervalUsed) return true;
+    if (Array.isArray(i?.prices) && i.prices.length > 0) return true;
+    return false;
+  }, [api?.intraday]);
+
+  useEffect(() => {
+    if (marketTabAutoDoneRef.current) return;
+    if (marketTabUserSetRef.current) return;
+
+    // If intraday looks live, default to intraday. Otherwise, stay on daily.
+    _setMarketTab(looksLikeIntradayIsLive ? "intraday" : "daily");
+    marketTabAutoDoneRef.current = true;
+  }, [looksLikeIntradayIsLive]);
 
   const pages = useMemo(
     () => [
