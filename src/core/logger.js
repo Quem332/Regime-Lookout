@@ -83,7 +83,12 @@ const persisted = readPersisted().map((e) => ({ ...e, persisted: true }));
 buffer = persisted.slice(-MAX_PERSIST);
 
 function emit() {
-  for (const fn of listeners) {
+  // Defensive: never let a bad subscriber crash the whole app.
+  for (const fn of Array.from(listeners)) {
+    if (typeof fn !== "function") {
+      try { listeners.delete(fn); } catch (_) {}
+      continue;
+    }
     try { fn(); } catch (_) {}
   }
 }
@@ -116,7 +121,11 @@ export const logger = {
     try { localStorage.setItem("mri_log_level", level); } catch (_) {}
     this.info("logger.level", { level });
   },
-  subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+  subscribe(fn) {
+    if (typeof fn !== "function") return () => {};
+    listeners.add(fn);
+    return () => listeners.delete(fn);
+  },
   clear({ includePersisted = true } = {}) {
     buffer = [];
     emit();
