@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Card } from "../components/Card";
 
 
@@ -15,23 +15,23 @@ function isTapLike(start, end, maxDist = 10, maxMs = 300) {
   const dt = end.t - start.t;
   return dx <= maxDist && dy <= maxDist && dt <= maxMs;
 }
-export function PageHome({ api, tab, setTab }) {
+export function PageHome({ api, tab: tabProp, setTab: setTabProp }) {
   const mri = api?.mri;
   const daily = mri?.daily || null;
   const status = mri?.status || null;
 
   // two internal views (A has 2 screens)
+  const [localTab, setLocalTab] = useState("overview");
+  const tab = tabProp ?? localTab;
+  const setTab = typeof setTabProp === "function" ? setTabProp : setLocalTab;
   const view = tab ?? "overview"; // "overview" | "scenarios"
 
   // tap-anywhere toggle (doesn't interfere with horizontal swipe; we only toggle on true taps)
   const downRef = useRef(null);
   const onPointerDown = (e) => {
-    // Don't toggle when interacting with buttons/links/inputs etc.
-    if (isInteractiveTarget(e.target)) return;
     downRef.current = { x: e.clientX, y: e.clientY, t: performance.now() };
   };
   const onPointerUp = (e) => {
-    if (isInteractiveTarget(e.target)) return;
     const start = downRef.current;
     downRef.current = null;
     const end = { x: e.clientX, y: e.clientY, t: performance.now() };
@@ -102,7 +102,7 @@ export function PageHome({ api, tab, setTab }) {
             </div>
             <div className="mt-2 flex flex-wrap gap-2">
               {probList.slice(0, 3).map(([k, v]) => (
-                <span key={k} className="text-xs px-2 py-1 rounded-full bg-white/10 text-white/80">
+                <span key={k} className="text-xs px-2 py-1 rounded-full bg-white/10 text-white/80" title={(x && typeof x === "object") ? (x.msg ?? x.message ?? "") : ""}>
                   {k}: {(v * 100).toFixed(0)}%
                 </span>
               ))}
@@ -111,21 +111,12 @@ export function PageHome({ api, tab, setTab }) {
 
           <Card title="Reasoning tags" subtitle="Key drivers">
             <div className="flex flex-wrap gap-2">
-              {
-              tags.length ? (
-                tags.map((x, i) => {
-                  const label = typeof x === "string" ? x : (x?.label ?? String(x ?? ""));
-                  const tip = typeof x === "object" && x ? (x.msg ?? "") : "";
-                  return (
-                    <span
-                      key={i}
-                      title={tip || undefined}
-                      className="text-xs px-2 py-1 rounded-full bg-white/10 text-white/80"
-                    >
-                      {label}
-                    </span>
-                  );
-                })
+              {tags.length ? (
+                tags.map((x, i) => (
+                  <span key={i} className="text-xs px-2 py-1 rounded-full bg-white/10 text-white/80">
+                    {(x && typeof x === "object") ? (x.label ?? x.name ?? JSON.stringify(x)) : String(x)}
+                  </span>
+                ))
               ) : (
                 <span className="text-xs text-white/60">--</span>
               )}
