@@ -6,6 +6,7 @@ import {
   computeTodayScoreSpec,
 } from "../core/engine.daily";
 import { buildReasoningTags } from "../core/tags";
+import { normalizeLatest } from "../core/normalize.latest";
 import { upperTriangleAvgCorrMock } from "../core/mock";
 import { logger } from "../core/logger";
 import { idbGet, idbSet } from "../storage/idb";
@@ -137,6 +138,30 @@ function isInEventWindow(now, events, windowMin = 15) {
   return { active: false, event: null, diffMs: null };
 }
 
+
+function isMarketOpenET(now) {
+  // US/Eastern regular hours: 09:30 - 16:00 ET, Mon-Fri
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(now);
+    const get = (type) => parts.find((p) => p.type === type)?.value;
+    const wd = get("weekday") || "";
+    if (wd === "Sat" || wd === "Sun") return false;
+    const h = Number(get("hour"));
+    const m = Number(get("minute"));
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return false;
+    const mins = h * 60 + m;
+    return mins >= (9 * 60 + 30) && mins < (16 * 60);
+  } catch {
+    return false;
+  }
+}
+
 function computeNextHalfHour(now) {
   const d = new Date(now.getTime());
   d.setSeconds(0, 0);
@@ -155,10 +180,9 @@ export function useMRIState() {
   const [daily, setDaily] = useState(null);
   const [intraday, setIntraday] = useState(null);
   const [status, setStatus] = useState(null);
-
   const latestRef = useRef(null); // last latest.json payload
   const calRef = useRef({ events: [], loaded: false });
-
+  const healthRef = useRef({ lastOkAt: null, lastError: null, lastErrorAt: null, schema: null });
   const buildDailyFromFeatures = ({ featuresZ, meta }) => {
     const started = performance.now();
     const V = [featuresZ.x, featuresZ.y, featuresZ.rates, featuresZ.usd, featuresZ.vix, featuresZ.goldFear].map((v) => num(v, 0));
@@ -269,11 +293,31 @@ try {
   const refreshLatest = async () => {
     const started = performance.now();
     const bust = `?t=${Date.now()}`;
-    const latest = await fetchJson(`${LATEST_URL}${bust}`, { timeoutMs: 15_000 });
+    const raw = await fetchJson(`${LATEST_URL}${bust}`, { timeoutMs: 15_000 });
 
-    if (!latest?.featuresZ) throw new Error("latest.json missing featuresZ");
+    const norm = normalizeLatest(raw);
+    if (!norm.ok) {
+      const errMsg = norm.error || "latest.json invalid";
+      healthRef.current = {
+        ...healthRef.current,
+        lastError: errMsg,
+        lastErrorAt: new Date().toISOString(),
+        schema: norm.schema ?? null,
+      };
+      throw new Error(errMsg);
+    }
 
+    const latest = norm.latest;
     latestRef.current = latest;
+
+    // Mark OK
+    healthRef.current = {
+      ...healthRef.current,
+      lastOkAt: new Date().toISOString(),
+      lastError: null,
+      lastErrorAt: null,
+      schema: norm.schema ?? null,
+    };
 
     // intraday first (so daily can use corrAvg if present)
     setIntradayFromLatest(latest);
@@ -415,6 +459,8 @@ try {
     const tonePack = latencyTone(latencyMin);
 
     const now = new Date(nowMs);
+    const marketOpen = isMarketOpenET(now);
+    const eventWindow = marketOpen ? isInEventWindow(now, calRef.current.events || [], 15) : { active: false, event: null, diffMs: null };
     const next = computeNextHalfHour(now);
     const secs = Math.max(0, Math.floor((next.getTime() - now.getTime()) / 1000));
 
@@ -438,6 +484,59 @@ try {
 
     const topLabel = fetchedLabel ? `SYNC ${fetchedLabel}` : asOfLabel ? `DATA ${asOfLabel}` : tonePack.label;
 
+    // Health badge: color-only (legacy thresholds)
+// - <=10m: green
+// - <=20m: yellow
+// - <=30m: red
+// - >30m or no reference: black
+    const h = healthRef.current || {};
+    const nowT = now.getTime();
+    const asOfT = asOfDate ? asOfDate.getTime() : null;
+    const refT = asOfT ?? (h?.lastOkAt ? new Date(h.lastOkAt).getTime() : null);
+    const ageMin = refT ? (nowT - refT) / (60 * 1000) : Infinity;
+    const hasNewerError =
+      h?.lastError &&
+      (!h?.lastOkAt ||
+        (h.lastErrorAt &&
+          new Date(h.lastErrorAt).getTime() >
+            new Date(h.lastOkAt).getTime()));
+
+    let healthLabel = "OK";
+    let healthTone = "good";
+
+    if (!Number.isFinite(ageMin)) {
+      healthLabel = hasNewerError ? "FETCH_FAIL" : "NO_DATA";
+      healthTone = "black";
+    } else if (ageMin <= 10) {
+      healthLabel = "OK";
+      healthTone = "good";
+    } else if (ageMin <= 20) {
+      healthLabel = "STALE";
+      healthTone = "warn";
+    } else if (ageMin <= 30) {
+      healthLabel = hasNewerError ? "FETCH_FAIL" : "STALE";
+      healthTone = "bad";
+    } else {
+      healthLabel = hasNewerError ? "FETCH_FAIL" : "STALE";
+      healthTone = "black";
+    }
+
+    // If a newer fetch error exists, do not show green/yellow.
+    if (hasNewerError && (healthTone === "good" || healthTone === "warn")) {
+      healthLabel = "FETCH_FAIL";
+      healthTone = ageMin > 30 ? "black" : "bad";
+    }
+
+    const health = {
+      label: healthLabel,
+      tone: healthTone,
+      ageMin,
+      lastOkAt: h?.lastOkAt ?? null,
+      lastError: h?.lastError ?? null,
+      lastErrorAt: h?.lastErrorAt ?? null,
+      schema: h?.schema ?? null,
+    };
+
     return {
       market: {
         tone: tonePack.tone,
@@ -446,12 +545,15 @@ try {
         asOf: asOfStr,
         fetchedAt: fetchedAtStr,
       },
+      health,
       timers: {
         nextUpdateInSec: secs,
         countdown,
         pollMs,
       },
+      marketOpen,
       events: calRef.current.events || [],
+      eventWindow,
     };
   }, [daily?.meta, nowMs, pollMs]);
 

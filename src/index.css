@@ -55,3 +55,27 @@ body::-webkit-scrollbar {
   -webkit-overflow-scrolling: touch;
   padding-bottom: env(safe-area-inset-bottom);
 }
+
+
+/* Status dot (next to last update time) */
+.status-dot {
+  display: inline-block;
+  width: 0.75rem; /* matches w-3 */
+  height: 0.75rem;
+  border-radius: 9999px;
+  margin-left: 0.5rem;
+  vertical-align: middle;
+}
+
+@keyframes mriStatusBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+.status-dot-blink {
+  animation: mriStatusBlink 1.6s linear infinite;
+}
+
+.status-dot-blink-fast {
+  animation: mriStatusBlink 0.7s linear infinite;
+}

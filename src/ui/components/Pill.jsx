@@ -1,12 +1,22 @@
-export function Pill({ children, tone = "gray" }) {
-  let content = children;
+import { getTagBilingual } from "../../core/tagGlossary";
+
+export function Pill({ children, tone = "gray", label, msg, lang = "en", title }) {
+  // Display text
+  let display = children ?? label ?? "";
+  let rawLabel = label ?? "";
+
   // Defensive: React can't render plain objects.
   // Some callsites pass structured objects (e.g., {level,label,msg}).
-  if (content && typeof content === "object") {
-    if ("msg" in content) content = content.msg;
-    else if ("label" in content) content = content.label;
-    else content = JSON.stringify(content);
+  let rawMsg = msg ?? "";
+  if (display && typeof display === "object") {
+    const obj = display;
+    rawLabel = obj.label ?? obj.text ?? "";
+    rawMsg = obj.msg ?? obj.hint ?? rawMsg ?? "";
+    display = obj.label ?? obj.text ?? obj.msg ?? JSON.stringify(obj);
+  } else {
+    rawLabel = rawLabel || String(display ?? "");
   }
+
   const toneMap = {
     gray: "bg-gray-800 text-gray-200 border-gray-700",
     red: "bg-red-500 bg-opacity-15 text-red-300 border-red-500 border-opacity-40",
@@ -14,10 +24,20 @@ export function Pill({ children, tone = "gray" }) {
     green: "bg-green-500 bg-opacity-15 text-green-200 border-green-500 border-opacity-40",
     blue: "bg-blue-500 bg-opacity-15 text-blue-200 border-blue-500 border-opacity-40",
   };
+
+  // Optional tooltip for tags
+  let tooltip = title ?? "";
+  if (!tooltip && (rawMsg || rawLabel)) {
+    const bi = getTagBilingual({ label: rawLabel, msg: rawMsg });
+    tooltip = lang === "ko" ? (bi.koMsg || bi.enMsg || rawMsg) : (bi.enMsg || rawMsg || bi.koMsg);
+  }
+
   return (
-    <span className={`inline-flex items-center px-2.5 py-1 rounded-full border text-xs ${toneMap[tone]}`}>
-      {content}
+    <span
+      className={`inline-flex items-center px-2.5 py-1 rounded-full border text-xs ${toneMap[tone]}`}
+      title={tooltip || undefined}
+    >
+      {display}
     </span>
   );
 }
-

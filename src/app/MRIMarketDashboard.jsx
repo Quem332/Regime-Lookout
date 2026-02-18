@@ -50,7 +50,7 @@ export function MRIMarketDashboard() {
           <div className="text-xs opacity-70">{subtitle}</div>
         </div>
         <div className="flex items-center gap-2">
-          <StatusPill market={status?.market} timers={status?.timers} />
+          <StatusPill market={status?.market} timers={status?.timers} health={status?.health} marketOpen={status?.marketOpen} eventWindow={status?.eventWindow} />
         </div>
       </div>
 

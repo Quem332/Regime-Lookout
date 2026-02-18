@@ -165,7 +165,7 @@ export function PageScore({ t, daily, lang }) {
           {(tags || [])
             .slice(tagPage * TAGS_PER_PAGE, (tagPage + 1) * TAGS_PER_PAGE)
             .map((tag, i) => (
-              <Pill key={i} label={tag.label} msg={tag.msg} />
+              <Pill key={i} tone="blue" label={tag.label ?? tagText(tag)} msg={tag.msg} lang={lang} />
             ))}
         </div>
       </Modal>

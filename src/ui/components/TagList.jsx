@@ -1,21 +1,31 @@
 import React from "react";
+import { getTagBilingual } from "../../core/tagGlossary";
 
 /**
  * TagList
- * - tags: ["A","B"] or [{text, tone}] 모두 지원
+ * - tags: ["A","B"] or [{text,label,msg,tone,level}] 모두 지원
  * - tone: "good" | "warn" | "bad" | "neutral"
+ * - level: "green" | "yellow" | "red"  (engine output)
  */
-export function TagList({ tags = [], title = "Reasoning Tags" }) {
+export function TagList({ tags = [], title = "Reasoning Tags", lang = "en" }) {
   const items = Array.isArray(tags) ? tags : [];
 
+  const levelToTone = (lvl) => {
+    if (lvl === "green") return "good";
+    if (lvl === "yellow") return "warn";
+    if (lvl === "red") return "bad";
+    return null;
+  };
+
   const normalize = (t) => {
-    if (typeof t === "string") return { text: t, tone: "neutral" };
+    if (typeof t === "string") return { text: t, tone: "neutral", msg: "" };
     if (t && typeof t === "object") {
       const text = t.text ?? t.label ?? String(t);
-      const tone = t.tone ?? t.level ?? "neutral";
-      return { text, tone };
+      const tone = t.tone ?? levelToTone(t.level) ?? t.level ?? "neutral";
+      const msg = t.msg ?? t.hint ?? "";
+      return { text, tone, msg, raw: t };
     }
-    return { text: String(t), tone: "neutral" };
+    return { text: String(t), tone: "neutral", msg: "" };
   };
 
   const chipStyle = (tone) => {
@@ -66,11 +76,19 @@ export function TagList({ tags = [], title = "Reasoning Tags" }) {
         <div style={{ fontSize: 12, opacity: 0.7 }}>No tags available.</div>
       ) : (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {norm.map((t, i) => (
-            <span key={`${t.text}-${i}`} style={chipStyle(t.tone)}>
-              {t.text}
-            </span>
-          ))}
+          {norm.map((t, i) => {
+            const bi = getTagBilingual({ label: t.text, msg: t.msg, ...(t.raw || {}) });
+            const titleText = (lang === "ko" ? (bi.koMsg || bi.enMsg) : (bi.enMsg || bi.koMsg)) || "";
+            return (
+              <span
+                key={`${lang === "ko" ? bi.koLabel : bi.enLabel}-${i}`}
+                style={chipStyle(t.tone)}
+                title={titleText || undefined}
+              >
+                {lang === "ko" ? bi.koLabel : bi.enLabel}
+              </span>
+            );
+          })}
         </div>
       )}
     </div>

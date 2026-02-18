@@ -71,6 +71,8 @@ export function PageHub({ api, t: tProp }) {
     const lines = [
       `Regime-Lookout`,
       `SYNC: ${status?.market?.label ?? "--"}`,
+      `health: ${status?.health?.label ?? "--"}`,
+      `schema: ${status?.health?.schema?.got ?? "legacy"} (exp ${status?.health?.schema?.expected ?? "--"})`,
       `asOf: ${daily?.meta?.asOf ?? daily?.meta?.asOfStr ?? daily?.meta?.asOf ?? status?.market?.asOf ?? "--"}`,
       `score: ${daily?.score != null ? Math.round(daily.score) : "--"}`,
       `Cfinal: ${daily?.Cfinal != null ? Math.round(daily.Cfinal) : "--"}`,
