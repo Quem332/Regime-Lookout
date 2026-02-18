@@ -1,12 +1,22 @@
+import React from "react";
 import { getTagBilingual } from "../../core/tagGlossary";
 
-export function Pill({ children, tone = "gray", label, msg, lang = "en", title }) {
+export function Pill({
+  children,
+  tone = "gray",
+  label,
+  msg,
+  lang = "en",
+  title,
+  onClick,
+  className = "",
+  ...rest
+}) {
   // Display text
   let display = children ?? label ?? "";
   let rawLabel = label ?? "";
 
   // Defensive: React can't render plain objects.
-  // Some callsites pass structured objects (e.g., {level,label,msg}).
   let rawMsg = msg ?? "";
   if (display && typeof display === "object") {
     const obj = display;
@@ -32,11 +42,28 @@ export function Pill({ children, tone = "gray", label, msg, lang = "en", title }
     tooltip = lang === "ko" ? (bi.koMsg || bi.enMsg || rawMsg) : (bi.enMsg || rawMsg || bi.koMsg);
   }
 
+  const base =
+    `inline-flex items-center px-2.5 py-1 rounded-full border text-xs ${toneMap[tone] || toneMap.gray} ${className}`;
+
+  // Important: if clickable, use <button> so it actually works on mobile.
+  if (typeof onClick === "function") {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={base + " cursor-pointer"}
+        title={tooltip || undefined}
+        data-stop-toggle="1"
+        data-no-tap-nav="1"
+        {...rest}
+      >
+        {display}
+      </button>
+    );
+  }
+
   return (
-    <span
-      className={`inline-flex items-center px-2.5 py-1 rounded-full border text-xs ${toneMap[tone]}`}
-      title={tooltip || undefined}
-    >
+    <span className={base} title={tooltip || undefined} {...rest}>
       {display}
     </span>
   );

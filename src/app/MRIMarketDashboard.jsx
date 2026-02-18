@@ -8,6 +8,7 @@ import { PageMarket } from "../ui/pages/PageMarket";
 import { PageHub } from "../ui/pages/PageHub";
 
 import { StatusPill } from "../ui/components/StatusPill";
+import { Pill } from "../ui/components/Pill";
 import { I18N } from "../core/i18n";
 
 export function MRIMarketDashboard() {
@@ -45,7 +46,7 @@ export function MRIMarketDashboard() {
     [api, homeTab, marketTab, lang]
   );
 
-  const nav = useH3DragNav({ initialIndex: 0, thresholdPx: 90 });
+  const nav = useH3DragNav({ initialIndex: 0, thresholdPx: 90, tapToCycle: false });
 
   const title = nav.index === 0 ? "HOME" : nav.index === 1 ? "MARKET" : "HUB";
   const subtitle =
@@ -68,6 +69,11 @@ export function MRIMarketDashboard() {
           <div className="text-xs opacity-70">{subtitle}</div>
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 mr-1">
+            <Pill tone={nav.index===0?"blue":"gray"} onClick={() => nav.goTo(0)}>A</Pill>
+            <Pill tone={nav.index===1?"blue":"gray"} onClick={() => nav.goTo(1)}>B</Pill>
+            <Pill tone={nav.index===2?"blue":"gray"} onClick={() => nav.goTo(2)}>C</Pill>
+          </div>
           <StatusPill market={status?.market} timers={status?.timers} health={status?.health} marketOpen={status?.marketOpen} eventWindow={status?.eventWindow} />
         </div>
       </div>
