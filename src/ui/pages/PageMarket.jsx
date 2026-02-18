@@ -29,7 +29,7 @@ function isInteractiveTarget(el) {
   return false;
 }
 
-export function PageMarket({ api, tab, setTab }) {
+export function PageMarket({ api, tab, setTab, lang = "en", t }) {
   // Back-compat: api.mri.* or flattened api.* (older runners)
   const mri = api?.mri ?? api ?? null;
   const daily = mri?.daily ?? null;

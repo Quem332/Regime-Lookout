@@ -146,6 +146,11 @@ export const logger = {
       counts,
       size: buffer.length,
       last: logs,
+      lines: logs.map((e) => {
+        const data = e.data == null ? "" : safeStringify(e.data);
+        const persistedTag = e.persisted ? " (persisted)" : "";
+        return `${e.ts} ${String(e.level||"info").toUpperCase()} ${e.event}${persistedTag} ${data}`.trim();
+      }),
     };
   },
 
@@ -202,14 +207,7 @@ export const logger = {
   warn(event, data) { this.log("warn", event, data); },
   error(event, data) { this.log("error", event, data); },
 
-  getSnapshot() {
-    // Return a shallow copy so callers can safely iterate without mutation.
-    return lines.slice();
-  },
-  exportText(limit = 300) {
-    const snap = lines.slice(-Math.max(1, Number(limit) || 300));
-    return snap.map((l) => `${l.ts} ${l.level.toUpperCase()} ${l.event} ${l.text}`).join("\n");
-  },
+
 };
 
 // Convenience for capturing errors uniformly
