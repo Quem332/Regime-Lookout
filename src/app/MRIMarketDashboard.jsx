@@ -8,9 +8,12 @@ import { PageMarket } from "../ui/pages/PageMarket";
 import { PageHub } from "../ui/pages/PageHub";
 
 import { StatusPill } from "../ui/components/StatusPill";
+import { I18N } from "../core/i18n";
 
 export function MRIMarketDashboard() {
   const api = useMRIState();
+  // Back-compat: some UI reads api.mri.*
+  const apiWrapped = useMemo(() => (api ? ({ ...api, mri: api }) : api), [api]);
   const status = api?.status ?? {};
   const market = status?.market ?? {};
 
@@ -18,13 +21,28 @@ export function MRIMarketDashboard() {
   const [homeTab, setHomeTab] = useState("overview"); // overview | scenarios
   const [marketTab, setMarketTab] = useState("daily"); // daily | intraday
 
+  const [lang, setLang] = useState(() => {
+    try { return localStorage.getItem("mri_lang") || "en"; } catch { return "en"; }
+  });
+  React.useEffect(() => {
+    const onChange = () => {
+      try { setLang(localStorage.getItem("mri_lang") || "en"); } catch { setLang("en"); }
+    };
+    window.addEventListener("mri_lang_changed", onChange);
+    window.addEventListener("storage", onChange);
+    return () => {
+      window.removeEventListener("mri_lang_changed", onChange);
+      window.removeEventListener("storage", onChange);
+    };
+  }, []);
+
   const pages = useMemo(
     () => [
-      <PageHome key="home" api={api} tab={homeTab} setTab={setHomeTab} />,
-      <PageMarket key="market" api={api} tab={marketTab} setTab={setMarketTab} />,
-      <PageHub key="hub" api={api} />,
+      <PageHome key="home" api={apiWrapped} tab={homeTab} setTab={setHomeTab} lang={lang} t={lang==="ko"?I18N.ko:I18N.en} />,
+      <PageMarket key="market" api={apiWrapped} tab={marketTab} setTab={setMarketTab} lang={lang} t={lang==="ko"?I18N.ko:I18N.en} />,
+      <PageHub key="hub" api={apiWrapped} lang={lang} t={lang==="ko"?I18N.ko:I18N.en} />,
     ],
-    [api, homeTab, marketTab]
+    [api, homeTab, marketTab, lang]
   );
 
   const nav = useH3DragNav({ initialIndex: 0, thresholdPx: 90 });

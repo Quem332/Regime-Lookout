@@ -134,6 +134,21 @@ export const logger = {
     }
   },
   getLogs() { return buffer.slice(); },
+  getSnapshot({ max = 200 } = {}) {
+    const logs = buffer.slice(-Math.max(1, max));
+    const counts = logs.reduce((acc, e) => {
+      acc[e.level] = (acc[e.level] || 0) + 1;
+      return acc;
+    }, {});
+    return {
+      session,
+      level: currentLevel,
+      counts,
+      size: buffer.length,
+      last: logs,
+    };
+  },
+
   exportText() {
     const header = [
       `MRI Debug Export`,
@@ -186,6 +201,15 @@ export const logger = {
   info(event, data) { this.log("info", event, data); },
   warn(event, data) { this.log("warn", event, data); },
   error(event, data) { this.log("error", event, data); },
+
+  getSnapshot() {
+    // Return a shallow copy so callers can safely iterate without mutation.
+    return lines.slice();
+  },
+  exportText(limit = 300) {
+    const snap = lines.slice(-Math.max(1, Number(limit) || 300));
+    return snap.map((l) => `${l.ts} ${l.level.toUpperCase()} ${l.event} ${l.text}`).join("\n");
+  },
 };
 
 // Convenience for capturing errors uniformly

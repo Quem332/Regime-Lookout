@@ -42,7 +42,7 @@ export function useH3DragNav({ initialIndex = 0, thresholdPx = 80, tapToCycle = 
       if (!target || !(target instanceof Element)) return false;
       return Boolean(
         target.closest(
-          "button, a, input, textarea, select, option, label, summary, details, [role='button'], [role='link'], [data-no-tap-nav='1']"
+          "button, a, input, textarea, select, option, label, summary, details, [role='button'], [role='link'], [data-no-tap-nav='1'], [data-stop-toggle='1']"
         )
       );
     } catch {

@@ -334,6 +334,7 @@ try {
         cached: Boolean(latest?.cached),
         intraday: latest?.intraday ?? null,
         eventWindowActive: Boolean(latest?.eventWindowActive),
+        schema: norm?.schema ?? null,
         fetchedAt: new Date().toISOString(),
       },
     });
@@ -563,9 +564,12 @@ try {
   }, [statusComputed]);
 
   return {
+    // Back-compat: expose both top-level and nested "mri" so UI pages can safely read api.mri.*
+    mri: { daily, intraday, status: statusComputed, refreshLatest },
     daily,
     intraday,
     status: statusComputed,
     refreshLatest,
+    logger,
   };
 }
