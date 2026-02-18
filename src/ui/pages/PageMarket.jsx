@@ -9,7 +9,7 @@ function isTapLike(start, end) {
   return dx < 10 && dy < 10 && dt < 400;
 }
 
-export function PageMarket({ api }) {
+export function PageMarket({ api, tab, setTab }) {
   const mri = api?.mri;
   const daily = mri?.daily || null;
   const intraday = mri?.intraday || null;
@@ -20,11 +20,15 @@ export function PageMarket({ api }) {
   // - intraday: live diagnostics (only meaningful during market hours)
   const [view, setView] = useState("daily"); // "daily" | "intraday"
 
+  // Support controlled tab from dashboard if provided (keeps state in one place)
+  const activeView = tab ?? view;
+  const setActiveView = setTab ?? setView;
+
   useEffect(() => {
     // Default on first mount: if market is open and intraday exists -> intraday else daily
     const open = isMarketOpenET();
     const hasIntra = Boolean(intraday);
-    setView(open && hasIntra ? "intraday" : "daily");
+    setActiveView(open && hasIntra ? "intraday" : "daily");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -39,7 +43,7 @@ export function PageMarket({ api }) {
     const end = { x: e.clientX, y: e.clientY, t: performance.now() };
     if (!start) return;
     if (!isTapLike(start, end)) return;
-    setView((v) => (v === "daily" ? "intraday" : "daily"));
+    setActiveView((v) => (v === "daily" ? "intraday" : "daily"));
   };
 
   const marketLabel = status?.market?.label ?? "DATA --:--";
@@ -62,7 +66,7 @@ export function PageMarket({ api }) {
       <div className="flex items-end justify-between mb-3">
         <div>
           <div className="text-xl font-bold tracking-tight text-white">MARKET</div>
-          <div className="text-sm text-white/70">{view === "daily" ? "Daily" : "Intraday"}</div>
+          <div className="text-sm text-white/70">{activeView === "daily" ? "Daily" : "Intraday"}</div>
         </div>
         <div className="text-right">
           <div className="text-xs text-white/60">{marketLabel}</div>
@@ -70,7 +74,7 @@ export function PageMarket({ api }) {
         </div>
       </div>
 
-      {view === "daily" ? (
+      {activeView === "daily" ? (
         <div className="grid gap-3">
           <Card title="Daily score" subtitle="From latest.json">
             <div className="flex items-end gap-3">
