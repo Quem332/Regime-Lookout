@@ -80,11 +80,27 @@ export function PageHome({ api, tab, setTab, t }) {
           <Card title="Reasoning" subtitle="Key drivers">
             <div className="flex flex-wrap gap-2">
               {tags.length ? (
-                tags.map((x, i) => (
-                  <span key={i} className="text-xs px-2 py-1 rounded-full bg-white/10 text-white/80">
-                    {x}
-                  </span>
-                ))
+                tags.map((x, i) => {
+                  const label =
+                    typeof x === "string"
+                      ? x
+                      : (x && typeof x === "object"
+                          ? (x.label ?? x.text ?? x.msg ?? x.name ?? JSON.stringify(x))
+                          : String(x ?? ""));
+                  const tip =
+                    x && typeof x === "object"
+                      ? (x.msg ?? x.hint ?? "")
+                      : "";
+                  return (
+                    <span
+                      key={i}
+                      className="text-xs px-2 py-1 rounded-full bg-white/10 text-white/80"
+                      title={tip || undefined}
+                    >
+                      {label}
+                    </span>
+                  );
+                })
               ) : (
                 <span className="text-xs text-white/60">--</span>
               )}
