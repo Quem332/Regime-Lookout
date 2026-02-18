@@ -8,59 +8,68 @@ import { PageMarket } from "../ui/pages/PageMarket";
 import { PageHub } from "../ui/pages/PageHub";
 
 import { StatusPill } from "../ui/components/StatusPill";
+
 import { I18N, createT } from "../core/i18n";
+import { loadLang, saveLang } from "../storage/localSettings";
+import { logger } from "../core/logger";
+
+function detectLang() {
+  try {
+    const l = (navigator.language || "en").toLowerCase();
+    return l.startsWith("ko") ? "ko" : "en";
+  } catch {
+    return "en";
+  }
+}
 
 export function MRIMarketDashboard() {
-  const api = useMRIState();
-  // Back-compat: some UI reads api.mri.*
-  const apiWrapped = useMemo(() => (api ? ({ ...api, mri: api }) : api), [api]);
-  const status = api?.status ?? {};
-  const market = status?.market ?? {};
+  const mri = useMRIState();
+
+  // Backward-compat facade: some pages expect api.mri.* and api.logger
+  const api = useMemo(() => ({ mri, logger }), [mri]);
+
+  const status = mri?.status ?? {};
+
+  // Language (single source of truth)
+  const [lang, setLang] = useState(() => loadLang(detectLang()));
+  const tFn = useMemo(() => createT(lang === "ko" ? I18N.ko : I18N.en), [lang]);
+
+  const onToggleLang = () => {
+    setLang((cur) => {
+      const next = cur === "ko" ? "en" : "ko";
+      saveLang(next);
+      logger.info?.("ui.lang_set", { lang: next });
+      return next;
+    });
+  };
 
   // Inner tabs
   const [homeTab, setHomeTab] = useState("overview"); // overview | scenarios
   const [marketTab, setMarketTab] = useState("daily"); // daily | intraday
 
-  const [lang, setLang] = useState(() => {
-    try { return localStorage.getItem("mri_lang") || "en"; } catch { return "en"; }
-  });
-  React.useEffect(() => {
-    const onChange = () => {
-      try { setLang(localStorage.getItem("mri_lang") || "en"); } catch { setLang("en"); }
-    };
-    window.addEventListener("mri_lang_changed", onChange);
-    window.addEventListener("storage", onChange);
-    return () => {
-      window.removeEventListener("mri_lang_changed", onChange);
-      window.removeEventListener("storage", onChange);
-    };
-  }, []);
-
-  
-  const dict = (lang === "ko" ? I18N.ko : I18N.en);
-  const tFn = useMemo(() => createT(dict), [dict]);
-const pages = useMemo(
+  const pages = useMemo(
     () => [
-      <PageHome key="home" api={apiWrapped} tab={homeTab} setTab={setHomeTab} lang={lang} t={tFn} />,
-      <PageMarket key="market" api={apiWrapped} tab={marketTab} setTab={setMarketTab} lang={lang} t={tFn} />,
-      <PageHub key="hub" api={apiWrapped} lang={lang} t={tFn} />,
+      <PageHome key="home" api={api} tab={homeTab} setTab={setHomeTab} t={tFn} />,
+      <PageMarket key="market" api={api} tab={marketTab} setTab={setMarketTab} t={tFn} />,
+      <PageHub key="hub" api={api} t={tFn} lang={lang} onToggleLang={onToggleLang} />,
     ],
-    [api, homeTab, marketTab, lang]
+    [api, homeTab, marketTab, tFn, lang]
   );
 
-  const nav = useH3DragNav({ initialIndex: 0, thresholdPx: 110, tapToCycle: false });
+  // Swipe-only loop navigation. (No tap-to-cycle.)
+  const nav = useH3DragNav({ initialIndex: 0, thresholdPx: 110, tapToCycle: false, edgeSwipePx: 24 });
 
-  const title = nav.index === 0 ? (tFn("pages.A",tFn("pages.A","Daily"))) : nav.index === 1 ? (tFn("pages.B","Score")) : (tFn("pages.C","Hub"));
+  const title = nav.index === 0 ? (tFn("nav.home","HOME")) : nav.index === 1 ? (tFn("nav.market","MARKET")) : (tFn("nav.hub","HUB"));
   const subtitle =
     nav.index === 0
       ? homeTab === "overview"
-        ? tFn("daily.todayStatus","Today")
-        : tFn("score.topScenarios","Scenarios")
+        ? tFn("daily.todayStatus", "Today")
+        : tFn("hub.nav", "Scenarios")
       : nav.index === 1
       ? marketTab === "daily"
-        ? tFn("pages.A","Daily")
-        : tFn("intraday.title","Intraday")
-      : tFn("hub.title","Hub");
+        ? tFn("pages.A", "Daily")
+        : tFn("pages.D", "Intraday")
+      : tFn("hub.title", "Info");
 
   return (
     <div className="relative h-[100dvh] w-[100dvw] overflow-hidden bg-slate-950 text-white select-none">
@@ -71,11 +80,17 @@ const pages = useMemo(
           <div className="text-xs opacity-70">{subtitle}</div>
         </div>
         <div className="flex items-center gap-2">
-<StatusPill market={status?.market} timers={status?.timers} health={status?.health} marketOpen={status?.marketOpen} eventWindow={status?.eventWindow} />
+          <StatusPill
+            market={status?.market}
+            timers={status?.timers}
+            health={status?.health}
+            marketOpen={status?.marketOpen}
+            eventWindow={status?.eventWindow}
+          />
         </div>
       </div>
 
-      {/* Viewport */}
+      {/* Viewport: allow vertical scroll inside pages; our nav only engages on clear horizontal swipe */}
       <div {...nav.bind} className="h-full w-full" style={{ touchAction: "pan-y" }}>
         <div
           className="flex h-full"
@@ -97,4 +112,3 @@ const pages = useMemo(
 }
 
 export default MRIMarketDashboard;
-

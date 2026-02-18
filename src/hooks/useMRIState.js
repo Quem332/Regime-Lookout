@@ -213,6 +213,7 @@ const zShortDaily = Number.isFinite(intraday?.zShort) ? intraday.zShort : Number
     const tags = buildReasoningTags({ V, corrAvg: corrAvgDaily, corrSurge: corrSurgeDaily, zShort: zShortDaily, probs, Cfinal });
 
     const snapshot = {
+      // core outputs
       V,
       probs,
       passedKeys,
@@ -228,9 +229,19 @@ const zShortDaily = Number.isFinite(intraday?.zShort) ? intraday.zShort : Number
       pEff: scorePack.pEff,
       penaltyApplied: scorePack.penaltyApplied,
       flags: scorePack.flags,
+
+      // convenience fields for UI/export (avoid deep meta chains)
+      asOf: meta?.asOf ?? null,
+      lastTradingDay: meta?.lastTradingDay ?? null,
+      fetchedAt: meta?.fetchedAt ?? null,
+      source: meta?.source ?? null,
+      dataHealthLevel: meta?.dataHealthLevel ?? null,
+
+      // diagnostics
       corrAvgDaily,
       tags,
       meta,
+
       ts: new Date(),
     };
 

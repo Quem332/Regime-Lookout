@@ -1,15 +1,14 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef } from "react";
 import { Card } from "../components/Card";
 import { isMarketOpenET } from "../../core/time.et";
-import { TagList } from "../components/TagList";
-import { logger } from "../../core/logger";
 
-/**
- * MARKET page:
- * - Swipe (handled by app nav): A-B-C etc.
- * -  (non-interactive) toggles internal views: Daily <-> Intraday
- * - When market is CLOSED or intraday data missing -> force Daily
- */
+function isInteractiveTarget(el) {
+  try {
+    return Boolean(el?.closest?.("button, a, input, textarea, select, [role='button'], [data-stop-toggle='1']"));
+  } catch {
+    return false;
+  }
+}
 
 function isTapLike(start, end) {
   const dx = Math.abs((end?.x ?? 0) - (start?.x ?? 0));
@@ -18,69 +17,38 @@ function isTapLike(start, end) {
   return dx < 10 && dy < 10 && dt < 400;
 }
 
-function isInteractiveTarget(el) {
-  if (!el) return false;
-  // explicit opt-out
-  if (el.closest?.('[data-stop-toggle="1"]')) return true;
-  const tag = (el.tagName || "").toLowerCase();
-  if (["button", "a", "input", "select", "textarea", "label"].includes(tag)) return true;
-  if (el.isContentEditable) return true;
-  if (el.closest?.("button,a,input,select,textarea,label")) return true;
-  return false;
-}
+export function PageMarket({ api, tab, setTab, t }) {
+  const mri = api?.mri;
+  const daily = mri?.daily || null;
+  const intraday = mri?.intraday || null;
 
-export function PageMarket({ api, tab, setTab, lang = "en", t }) {
-  // Back-compat: api.mri.* or flattened api.* (older runners)
-  const mri = api?.mri ?? api ?? null;
-  const daily = mri?.daily ?? null;
-  const intraday = mri?.intraday ?? null;
-  const status = mri?.status ?? null;
+  // Two internal views: daily | intraday
+  const view = tab ?? "daily";
 
-  // internal view: controlled (via tab) if provided; else local state.
-  const [localView, setLocalView] = useState("daily"); // "daily" | "intraday"
-  const view = (tab === "daily" || tab === "intraday") ? tab : localView;
-  const setView = (next) => {
-    const v = typeof next === "function" ? next(view) : next;
-    if (setTab) setTab(v);
-    else setLocalView(v);
-  };
-
-  // On mount: choose default view. If market open AND intraday exists -> intraday, else daily.
+  // Default: if market is closed -> daily, even if intraday exists.
   useEffect(() => {
-    const open = isMarketOpenET();
+    if (tab) return;
+    const open = isMarketOpenET(new Date());
     const hasIntra = Boolean(intraday);
-    const desired = open && hasIntra ? "intraday" : "daily";
-    setView(desired);
+    setTab?.(open && hasIntra ? "intraday" : "daily");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Force DAILY when market is closed or intraday data missing.
-  useEffect(() => {
-    const open = isMarketOpenET();
-    const hasIntra = Boolean(intraday);
-    if (!open || !hasIntra) {
-      if (view !== "daily") setView("daily");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [intraday]);
-
-  // tap-anywhere toggle (ignore interactive targets)
+  // tap-to-toggle internal view
   const downRef = useRef(null);
   const onPointerDown = (e) => {
     if (isInteractiveTarget(e.target)) return;
     downRef.current = { x: e.clientX, y: e.clientY, t: performance.now() };
   };
   const onPointerUp = (e) => {
+    if (isInteractiveTarget(e.target)) return;
     const start = downRef.current;
     downRef.current = null;
-    if (!start) return;
-    if (isInteractiveTarget(e.target)) return;
     const end = { x: e.clientX, y: e.clientY, t: performance.now() };
+    if (!start) return;
     if (!isTapLike(start, end)) return;
-    setView((v) => (v === "daily" ? "intraday" : "daily"));
+    setTab?.((v) => (v === "daily" ? "intraday" : "daily"));
   };
-
-  const marketLabel = status?.market?.label ?? "DATA --:--";
 
   const intra = intraday || {};
   const zShort = Number.isFinite(intra?.zShort) ? intra.zShort : null;
@@ -90,38 +58,15 @@ export function PageMarket({ api, tab, setTab, lang = "en", t }) {
   const score = Number.isFinite(daily?.score) ? daily.score : null;
   const Cfinal = Number.isFinite(daily?.Cfinal) ? daily.Cfinal : null;
 
-  const tags = Array.isArray(daily?.tags) ? daily.tags : [];
-
-  const open = isMarketOpenET();
-  const hasIntra = Boolean(intraday);
-  const hint = useMemo(() => {
-    if (!open || !hasIntra) return "Daily only (market closed)";
-    return " to toggle";
-  }, [open, hasIntra]);
-
   return (
-    <div
-      className="px-4 pt-20 pb-6"
-      onPointerDown={onPointerDown}
-      onPointerUp={onPointerUp}
-      style={{ touchAction: "pan-y" }}
-    >
-
+    <div className="px-4 pb-6" onPointerDown={onPointerDown} onPointerUp={onPointerUp} style={{ touchAction: "pan-y" }}>
       {view === "daily" ? (
         <div className="grid gap-3">
-          <Card title="Daily score" subtitle="From latest.json">
+          <Card title={t?.("pages.A", "Daily") ?? "Daily"} subtitle="Anchor view">
             <div className="flex items-end gap-3">
-              <div className="text-4xl font-extrabold text-white">
-                {score == null ? "--" : String(Math.round(score))}
-              </div>
-              <div className="text-sm text-white/70 pb-1">
-                C {Cfinal == null ? "--" : String(Math.round(Cfinal))}
-              </div>
+              <div className="text-4xl font-extrabold text-white">{score == null ? "--" : String(Math.round(score))}</div>
+              <div className="text-sm text-white/70 pb-1">C {Cfinal == null ? "--" : String(Math.round(Cfinal))}</div>
             </div>
-          </Card>
-
-          <Card title="Reasoning tags" subtitle="Why the score looks like this">
-            <TagList tags={tags} lang={lang} />
           </Card>
 
           <Card title="Inputs (Z)" subtitle="x, y, rates, usd, vix, goldFear">
@@ -138,10 +83,10 @@ export function PageMarket({ api, tab, setTab, lang = "en", t }) {
         </div>
       ) : (
         <div className="grid gap-3">
-          <Card title="Intraday diagnostics" subtitle="Fast signals">
+          <Card title={t?.("pages.D", "Intraday") ?? "Intraday"} subtitle="Fast signals">
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <div className="text-sm text-white/90">zShort</div>
+                <div className="text-sm text-white/90">z_short</div>
                 <div className="text-sm text-white/70">{zShort == null ? "--" : zShort.toFixed(2)}</div>
               </div>
               <div className="flex items-center justify-between">
@@ -150,14 +95,14 @@ export function PageMarket({ api, tab, setTab, lang = "en", t }) {
               </div>
               <div className="flex items-center justify-between">
                 <div className="text-sm text-white/90">corrSurge</div>
-                <div className="text-sm text-white/70">{corrSurge ? "YES" : "no"}</div>
+                <div className="text-sm text-white/70">{corrSurge ? "YES" : "NO"}</div>
               </div>
             </div>
           </Card>
 
-          <Card title="Note" subtitle="Intraday is meaningful mainly during market hours">
-            <div className="text-xs text-white/70">
-              {open ? "Market open (ET). Updates should be flowing." : "Market closed (ET). Intraday view is disabled."}
+          <Card title="Note" subtitle="Off-hours behavior">
+            <div className="text-sm text-white/70 leading-relaxed">
+              Off-hours, the app defaults to Daily view. Intraday is for market-hours diagnostics only.
             </div>
           </Card>
         </div>

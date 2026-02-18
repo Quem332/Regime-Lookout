@@ -1,29 +1,52 @@
 import { useEffect, useRef, useState } from "react";
 
 /**
- * Horizontal 3-page navigator with swipe threshold + snap.
+ * Horizontal 3-page navigator.
  *
- * Design rules (for this app):
- * - Swipe left/right switches A/B/C (index 0..2).
- * - Tap should NOT change pages unless tapToCycle=true.
- * - Interactive elements (buttons/links/inputs) must remain clickable.
- * - Vertical scroll inside pages must keep working (especially on Hub).
+ * Design goals (mobile-first):
+ * - NEVER break clicks on buttons/inputs.
+ * - Allow vertical scroll inside pages.
+ * - Swipe should require a clear horizontal intent (or an edge-swipe), and exceed a threshold.
+ * - Optional tap-to-cycle (disabled by default).
  */
-export function useH3DragNav({ initialIndex = 0, thresholdPx = 110, tapToCycle = false } = {}) {
+export function useH3DragNav({
+  initialIndex = 0,
+  thresholdPx = 110,
+  tapToCycle = false,
+  edgeSwipePx = 22,
+} = {}) {
   const [index, setIndex] = useState(initialIndex);
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
 
-  const startRef = useRef(null); // {x,y,t,pid}
-  const lockedRef = useRef(null); // "h" | "v" | null
+  const activePointerRef = useRef(null);
+  const startRef = useRef({ x: 0, y: 0, t: 0 });
+  const movedRef = useRef(false);
+
+  const engagedRef = useRef(false); // becomes true only when we decide it's a horizontal swipe
+  const edgeStartRef = useRef(false);
+  const dragXRef = useRef(0);
 
   const clampIndex = (i) => Math.max(0, Math.min(2, i));
 
-  const isInteractiveTarget = (el) => {
+  const goTo = (i) => {
+    setIndex(clampIndex(i));
+    dragXRef.current = 0;
+    setDragX(0);
+    engagedRef.current = false;
+    setIsDragging(false);
+  };
+
+  const goLeft = () => goTo(index - 1);
+  const goRight = () => goTo(index + 1);
+  const goNext = () => goTo((index + 1) % 3);
+
+  const isInteractiveTarget = (target) => {
     try {
+      if (!target || !(target instanceof Element)) return false;
       return Boolean(
-        el?.closest?.(
-          'button, a, input, textarea, select, [role="button"], [contenteditable="true"], [data-stop-toggle="1"], [data-no-tap-nav="1"]'
+        target.closest(
+          "button, a, input, textarea, select, option, label, summary, details, [role='button'], [role='link'], [data-no-tap-nav='1'], [data-stop-toggle='1']"
         )
       );
     } catch {
@@ -31,97 +54,138 @@ export function useH3DragNav({ initialIndex = 0, thresholdPx = 110, tapToCycle =
     }
   };
 
-  const goTo = (i) => setIndex(clampIndex(i));
-  const goLeft = () => setIndex((v) => clampIndex(v - 1));
-  const goRight = () => setIndex((v) => clampIndex(v + 1));
+  const onPointerDown = (e) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
 
-  const reset = () => {
-    startRef.current = null;
-    lockedRef.current = null;
-    setIsDragging(false);
+    // Do not start nav gestures from interactive elements.
+    if (isInteractiveTarget(e.target)) return;
+
+    activePointerRef.current = e.pointerId;
+    startRef.current = { x: e.clientX, y: e.clientY, t: performance.now() };
+    movedRef.current = false;
+    engagedRef.current = false;
+
+    dragXRef.current = 0;
     setDragX(0);
+    setIsDragging(false);
+
+    // Edge-swipe detection: helps on scroll-heavy Hub page.
+    try {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      edgeStartRef.current = x <= edgeSwipePx || x >= rect.width - edgeSwipePx;
+    } catch {
+      edgeStartRef.current = false;
+    }
   };
 
-  const onPointerDown = (e) => {
-    if (isInteractiveTarget(e.target)) return;
-    if (e.button != null && e.button !== 0) return;
-
-    startRef.current = { x: e.clientX, y: e.clientY, t: performance.now(), pid: e.pointerId };
-    lockedRef.current = null;
-    setIsDragging(false);
-    setDragX(0);
+  const engage = (e) => {
+    if (engagedRef.current) return;
+    engagedRef.current = true;
+    setIsDragging(true);
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {}
   };
 
   const onPointerMove = (e) => {
-    const s = startRef.current;
-    if (!s || e.pointerId !== s.pid) return;
+    if (activePointerRef.current !== e.pointerId) return;
 
-    const dx = e.clientX - s.x;
-    const dy = e.clientY - s.y;
-    const adx = Math.abs(dx);
-    const ady = Math.abs(dy);
+    const dx = e.clientX - startRef.current.x;
+    const dy = e.clientY - startRef.current.y;
 
-    // Decide lock direction after small movement (Hub tends to have slight vertical jitter)
-    if (!lockedRef.current) {
-      if (adx < 6 && ady < 6) return;
+    if (Math.abs(dx) > 8 || Math.abs(dy) > 8) movedRef.current = true;
 
-      // Prefer horizontal if it's at least comparable to vertical
-      if (adx >= 10 && adx > ady * 0.9) {
-        lockedRef.current = "h";
-        try { e.currentTarget?.setPointerCapture?.(e.pointerId); } catch {}
-        setIsDragging(true);
-      } else if (ady >= 12 && ady > adx * 1.4) {
-        // Strong vertical intention -> let page scroll naturally
-        lockedRef.current = "v";
-        return;
-      } else {
-        // undecided, wait for more movement
-        return;
+    // Decide whether to engage horizontal swipe.
+    if (!engagedRef.current) {
+      const absX = Math.abs(dx);
+      const absY = Math.abs(dy);
+
+      // If started from the edge, be more permissive.
+      const edgeOk = edgeStartRef.current && absX > 10;
+
+      // Otherwise require strong horizontal intent.
+      const horizontalOk = absX > 14 && absX > absY * 1.25;
+
+      if (!(edgeOk || horizontalOk)) {
+        return; // do nothing; allow vertical scroll normally
       }
+
+      engage(e);
     }
 
-    if (lockedRef.current !== "h") return;
+    // Apply drag (with a little resistance at ends)
+    let applied = dx;
+    if ((index === 0 && dx > 0) || (index === 2 && dx < 0)) {
+      applied = dx * 0.35;
+    }
 
-    // Horizontal drag: prevent browser navigation gestures while actively dragging
-    if (Math.abs(dx) > 10) e.preventDefault?.();
-    setDragX(dx);
+    dragXRef.current = applied;
+    setDragX(applied);
+
+    // When engaged, prevent native scrolling/history navigation.
+    try {
+      e.preventDefault();
+    } catch {}
   };
 
-  const onPointerUpOrCancel = (e) => {
-    const s = startRef.current;
-    const lock = lockedRef.current;
-    reset();
+  const endGesture = (eForTap) => {
+    const engaged = engagedRef.current;
+    const dx = dragXRef.current;
 
-    if (!s) return;
+    // Reset
+    engagedRef.current = false;
+    edgeStartRef.current = false;
+    activePointerRef.current = null;
 
-    const dx = e.clientX - s.x;
-    const dy = e.clientY - s.y;
-    const dt = performance.now() - s.t;
+    dragXRef.current = 0;
+    setDragX(0);
+    setIsDragging(false);
 
-    const adx = Math.abs(dx);
-    const ady = Math.abs(dy);
-
-    if (lock !== "h") {
-      if (tapToCycle && adx < 10 && ady < 10 && dt < 300) {
-        setIndex((v) => clampIndex(v + 1));
+    if (engaged) {
+      if (dx <= -thresholdPx) {
+        goRight();
+        return;
+      }
+      if (dx >= thresholdPx) {
+        goLeft();
+        return;
       }
       return;
     }
 
-    if (dx <= -thresholdPx) goRight();
-    else if (dx >= thresholdPx) goLeft();
+    // Tap-to-next (optional)
+    if (
+      tapToCycle &&
+      eForTap &&
+      !movedRef.current &&
+      !isInteractiveTarget(eForTap.target)
+    ) {
+      goNext();
+    }
   };
 
-  const bind = {
-    onPointerDown,
-    onPointerMove,
-    onPointerUp: onPointerUpOrCancel,
-    onPointerCancel: onPointerUpOrCancel,
+  const onPointerUp = (e) => {
+    if (activePointerRef.current !== e.pointerId) return;
+    endGesture(e);
   };
 
+  const onPointerCancel = () => {
+    if (activePointerRef.current == null) return;
+    endGesture(null);
+  };
+
+  // Keyboard support (desktop)
   useEffect(() => {
-    setIndex((v) => clampIndex(v));
-  }, []);
+    const onKeyDown = (e) => {
+      if (e.key === "ArrowLeft") goLeft();
+      if (e.key === "ArrowRight") goRight();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index]);
 
-  return { bind, index, dragX, isDragging, goTo, goLeft, goRight };
+  const bind = { onPointerDown, onPointerMove, onPointerUp, onPointerCancel };
+  return { index, dragX, isDragging, goTo, goLeft, goRight, bind };
 }
