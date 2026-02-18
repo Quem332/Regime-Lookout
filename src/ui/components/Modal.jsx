@@ -18,20 +18,21 @@ export function Modal({ open, title, children, onClose }) {
       onMouseDown={onClose}
     >
       <div
-        className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-950/90 backdrop-blur p-4 overflow-hidden"
+        className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-950/90 backdrop-blur p-4"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-3">
           <div className="text-sm font-semibold text-white/90 truncate">{title}</div>
           <button
-            className="text-xs px-2 py-1 rounded-lg bg-white/10 hover:bg-white/15"
+            className="text-xs px-2 py-1 rounded-lg bg-white/10 active:bg-white/15"
             onClick={onClose}
+            data-no-tap-nav="1"
           >
             Close
           </button>
         </div>
 
-        <div className="mt-3 overflow-hidden">
+        <div className="mt-3 max-h-[72vh] overflow-auto">
           {children}
         </div>
       </div>

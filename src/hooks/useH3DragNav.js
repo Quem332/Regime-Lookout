@@ -3,11 +3,11 @@ import { useEffect, useRef, useState } from "react";
 /**
  * Horizontal 3-page navigator with swipe threshold + snap.
  *
- * Goals:
+ * Design rules (for this app):
  * - Swipe left/right switches A/B/C (index 0..2).
  * - Tap should NOT change pages unless tapToCycle=true.
  * - Interactive elements (buttons/links/inputs) must remain clickable.
- * - Vertical scroll inside pages must keep working.
+ * - Vertical scroll inside pages must keep working (especially on Hub).
  */
 export function useH3DragNav({ initialIndex = 0, thresholdPx = 110, tapToCycle = false } = {}) {
   const [index, setIndex] = useState(initialIndex);
@@ -35,9 +35,15 @@ export function useH3DragNav({ initialIndex = 0, thresholdPx = 110, tapToCycle =
   const goLeft = () => setIndex((v) => clampIndex(v - 1));
   const goRight = () => setIndex((v) => clampIndex(v + 1));
 
+  const reset = () => {
+    startRef.current = null;
+    lockedRef.current = null;
+    setIsDragging(false);
+    setDragX(0);
+  };
+
   const onPointerDown = (e) => {
     if (isInteractiveTarget(e.target)) return;
-    // Only left click / primary pointer
     if (e.button != null && e.button !== 0) return;
 
     startRef.current = { x: e.clientX, y: e.clientY, t: performance.now(), pid: e.pointerId };
@@ -52,39 +58,39 @@ export function useH3DragNav({ initialIndex = 0, thresholdPx = 110, tapToCycle =
 
     const dx = e.clientX - s.x;
     const dy = e.clientY - s.y;
+    const adx = Math.abs(dx);
+    const ady = Math.abs(dy);
 
-    // Decide lock direction after a small movement
+    // Decide lock direction after small movement (Hub tends to have slight vertical jitter)
     if (!lockedRef.current) {
-      const adx = Math.abs(dx);
-      const ady = Math.abs(dy);
       if (adx < 6 && ady < 6) return;
 
-      // Lock to horizontal only if clearly horizontal
-      lockedRef.current = adx > ady * 1.2 ? "h" : "v";
-
-      if (lockedRef.current === "h") {
-        // Only now we start dragging and capture pointer
+      // Prefer horizontal if it's at least comparable to vertical
+      if (adx >= 10 && adx > ady * 0.9) {
+        lockedRef.current = "h";
         try { e.currentTarget?.setPointerCapture?.(e.pointerId); } catch {}
         setIsDragging(true);
+      } else if (ady >= 12 && ady > adx * 1.4) {
+        // Strong vertical intention -> let page scroll naturally
+        lockedRef.current = "v";
+        return;
       } else {
-        // Vertical: let the page scroll naturally
-        startRef.current = null;
+        // undecided, wait for more movement
         return;
       }
     }
 
     if (lockedRef.current !== "h") return;
 
-    // Horizontal drag: prevent browser back/forward gestures & selection while dragging
-    e.preventDefault?.();
+    // Horizontal drag: prevent browser navigation gestures while actively dragging
+    if (Math.abs(dx) > 10) e.preventDefault?.();
     setDragX(dx);
   };
 
   const onPointerUpOrCancel = (e) => {
     const s = startRef.current;
     const lock = lockedRef.current;
-    startRef.current = null;
-    lockedRef.current = null;
+    reset();
 
     if (!s) return;
 
@@ -95,21 +101,15 @@ export function useH3DragNav({ initialIndex = 0, thresholdPx = 110, tapToCycle =
     const adx = Math.abs(dx);
     const ady = Math.abs(dy);
 
-    // If not locked to horizontal, do nothing (allows clicks/scroll)
     if (lock !== "h") {
-      // Optionally allow tap-to-cycle (only if it's a real tap)
       if (tapToCycle && adx < 10 && ady < 10 && dt < 300) {
         setIndex((v) => clampIndex(v + 1));
       }
       return;
     }
 
-    // Snap by threshold
     if (dx <= -thresholdPx) goRight();
     else if (dx >= thresholdPx) goLeft();
-
-    setIsDragging(false);
-    setDragX(0);
   };
 
   const bind = {
@@ -119,7 +119,6 @@ export function useH3DragNav({ initialIndex = 0, thresholdPx = 110, tapToCycle =
     onPointerCancel: onPointerUpOrCancel,
   };
 
-  // Keep index clamped
   useEffect(() => {
     setIndex((v) => clampIndex(v));
   }, []);

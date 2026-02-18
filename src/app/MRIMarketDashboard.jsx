@@ -8,7 +8,7 @@ import { PageMarket } from "../ui/pages/PageMarket";
 import { PageHub } from "../ui/pages/PageHub";
 
 import { StatusPill } from "../ui/components/StatusPill";
-import { I18N } from "../core/i18n";
+import { I18N, createT } from "../core/i18n";
 
 export function MRIMarketDashboard() {
   const api = useMRIState();
@@ -36,28 +36,31 @@ export function MRIMarketDashboard() {
     };
   }, []);
 
-  const pages = useMemo(
+  
+  const dict = (lang === "ko" ? I18N.ko : I18N.en);
+  const tFn = useMemo(() => createT(dict), [dict]);
+const pages = useMemo(
     () => [
-      <PageHome key="home" api={apiWrapped} tab={homeTab} setTab={setHomeTab} lang={lang} t={lang==="ko"?I18N.ko:I18N.en} />,
-      <PageMarket key="market" api={apiWrapped} tab={marketTab} setTab={setMarketTab} lang={lang} t={lang==="ko"?I18N.ko:I18N.en} />,
-      <PageHub key="hub" api={apiWrapped} lang={lang} t={lang==="ko"?I18N.ko:I18N.en} />,
+      <PageHome key="home" api={apiWrapped} tab={homeTab} setTab={setHomeTab} lang={lang} t={tFn} />,
+      <PageMarket key="market" api={apiWrapped} tab={marketTab} setTab={setMarketTab} lang={lang} t={tFn} />,
+      <PageHub key="hub" api={apiWrapped} lang={lang} t={tFn} />,
     ],
     [api, homeTab, marketTab, lang]
   );
 
   const nav = useH3DragNav({ initialIndex: 0, thresholdPx: 110, tapToCycle: false });
 
-  const title = nav.index === 0 ? "HOME" : nav.index === 1 ? "MARKET" : "HUB";
+  const title = nav.index === 0 ? (tFn("pages.A",tFn("pages.A","Daily"))) : nav.index === 1 ? (tFn("pages.B","Score")) : (tFn("pages.C","Hub"));
   const subtitle =
     nav.index === 0
       ? homeTab === "overview"
-        ? "Today"
-        : "Scenarios"
+        ? tFn("daily.todayStatus","Today")
+        : tFn("score.topScenarios","Scenarios")
       : nav.index === 1
       ? marketTab === "daily"
-        ? "Daily"
-        : "Intraday"
-      : "Info";
+        ? tFn("pages.A","Daily")
+        : tFn("intraday.title","Intraday")
+      : tFn("hub.title","Hub");
 
   return (
     <div className="relative h-[100dvh] w-[100dvw] overflow-hidden bg-slate-950 text-white select-none">

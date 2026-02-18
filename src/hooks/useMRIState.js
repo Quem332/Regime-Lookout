@@ -221,6 +221,9 @@ const zShortDaily = Number.isFinite(intraday?.zShort) ? intraday.zShort : Number
       Cfinal,
       caps: rel.caps,
       regime7,
+      // UI-friendly fields (legacy UIs expect these at top-level)
+      asOf: meta?.asOf ?? null,
+      regime: (regime7 ?? (topK != null ? String(topK) : null)),
       score: scorePack.score,
       pEff: scorePack.pEff,
       penaltyApplied: scorePack.penaltyApplied,

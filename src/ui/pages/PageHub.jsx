@@ -76,7 +76,7 @@ export function PageHub({ api, lang: langProp, t: tProp }) {
   const onOpenLogs = () => {
     try {
       const text = (typeof logger?.exportText === "function" ? logger.exportText() : null)
-        || (logs.length ? logs.map((l) => JSON.stringify(l)).join("\n") : "No logs available.");
+        || (logs.length ? logs.map((l) => JSON.stringify(l)).join(String.fromCharCode(10)) : "No logs available.");
       setLogText(text);
       setOpen(true);
       logger.info?.("ui.hub_open_logs", { size: text?.length ?? 0 });
@@ -90,21 +90,56 @@ export function PageHub({ api, lang: langProp, t: tProp }) {
 
   const onCopyLogs = async () => {
     const text = (typeof logger?.exportText === "function" ? logger.exportText() : null)
-      || (logs.length ? logs.map((l) => JSON.stringify(l)).join("\n") : "(no logs)");
+      || (logs.length ? logs.map((l) => JSON.stringify(l)).join(String.fromCharCode(10)) : "(no logs)");
     setLogText(text);
     const ok = await copyToClipboard(text);
     logger.info?.("ui.hub_copy_logs", { ok, size: text?.length ?? 0 });
     if (!ok) alert("Copy failed.");
   };
 
-  const onCopyScores = async () => {
-    const daily = api?.daily ?? api?.mri?.daily ?? api?.mri?.latest?.daily ?? {};
-    const score = daily?.score ?? api?.score ?? api?.mri?.score ?? {};
-    const regime = daily?.regime ?? api?.regime ?? api?.mri?.regime ?? "";
-    const asOf = daily?.asOf ?? api?.asOf ?? api?.mri?.asOf ?? "";
-    const text = `Regime: ${regime || "--"}\nAsOf: ${asOf || "--"}\nScore: ${typeof score === "object" ? JSON.stringify(score) : String(score ?? "--")}`;
+  const buildExportText = () => {
+    const daily = api?.daily ?? api?.mri?.daily ?? api?.mri?.latest?.daily ?? null;
+    const intraday = api?.intraday ?? api?.mri?.intraday ?? null;
+    const status = api?.status ?? api?.mri?.status ?? null;
+    const calendar = api?.calendar ?? api?.mri?.calendar ?? null;
+
+    const pack = {
+      asOf: daily?.asOf ?? daily?.meta?.asOf ?? api?.asOf ?? api?.mri?.asOf ?? null,
+      regime: daily?.regime ?? daily?.regime7 ?? api?.regime ?? api?.mri?.regime ?? null,
+      score: daily?.score ?? api?.score ?? api?.mri?.score ?? null,
+      confidence: daily?.Cfinal ?? null,
+      topScenario: daily?.topK ?? null,
+      probs: daily?.probs ?? null,
+      tags: daily?.tags ?? null,
+      V: daily?.V ?? null,
+      corrAvg: daily?.corrAvgDaily ?? null,
+      status,
+      intraday: intraday ? {
+        zShort: intraday?.zShort ?? null,
+        corrAvg: intraday?.corrAvg ?? null,
+        corrSurge: intraday?.corrSurge ?? null,
+        updatedAt: intraday?.meta?.asOf ?? intraday?.asOf ?? null,
+      } : null,
+      calendar: calendar?.events ?? [],
+      meta: daily?.meta ?? null,
+    };
+
+    return [
+      "MRI EXPORT",
+      `asOf=${pack.asOf ?? "--"}`,
+      `regime=${pack.regime ?? "--"}`,
+      `score=${pack.score != null ? JSON.stringify(pack.score) : "--"}`,
+      `confidence=${pack.confidence != null ? String(pack.confidence) : "--"}`,
+      "",
+      JSON.stringify(pack, null, 2),
+      "",
+    ].join(String.fromCharCode(10));
+  };
+
+  const onCopyExport = async () => {
+    const text = buildExportText();
     const ok = await copyToClipboard(text);
-    logger.info?.("ui.hub_copy_scores", { ok });
+    logger.info?.("ui.hub_copy_export", { ok, size: text?.length ?? 0 });
     if (!ok) alert("Copy failed.");
   };
 
@@ -120,7 +155,7 @@ export function PageHub({ api, lang: langProp, t: tProp }) {
     <div className="px-4 pt-20 pb-24">
       <div className="flex items-center justify-end gap-2 mb-3">
         <Pill tone="blue" onClick={toggleLang}>{lang === "ko" ? "K/E" : "E/K"}</Pill>
-        <Pill tone="gray" onClick={onCopyScores}>Copy Scores</Pill>
+        <Pill tone="gray" onClick={onCopyExport}>Copy Export</Pill>
         <Pill tone="gray" onClick={onOpenLogs}>Open Logs</Pill>
         <Pill tone="gray" onClick={onCopyLogs}>Copy Logs</Pill>
       </div>
