@@ -34,6 +34,12 @@ export function euclid(V, S) {
   return Math.sqrt(sum);
 }
 
+
+export function scenarioDistance(k, V) {
+  const S = SCENARIOS?.[k]?.vector;
+  if (!Array.isArray(S)) return Number.POSITIVE_INFINITY;
+  return euclid(V, S);
+}
 export function computeProbabilitiesSpec(V) {
   const keysAll = Object.keys(SCENARIOS);
 

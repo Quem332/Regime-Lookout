@@ -7,7 +7,7 @@ import { logger } from "../../core/logger";
 /**
  * MARKET page:
  * - Swipe (handled by app nav): A-B-C etc.
- * - Tap anywhere (non-interactive) toggles internal views: Daily <-> Intraday
+ * -  (non-interactive) toggles internal views: Daily <-> Intraday
  * - When market is CLOSED or intraday data missing -> force Daily
  */
 
@@ -96,7 +96,7 @@ export function PageMarket({ api, tab, setTab, lang = "en", t }) {
   const hasIntra = Boolean(intraday);
   const hint = useMemo(() => {
     if (!open || !hasIntra) return "Daily only (market closed)";
-    return "Tap anywhere to toggle";
+    return " to toggle";
   }, [open, hasIntra]);
 
   return (

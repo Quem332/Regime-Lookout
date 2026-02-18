@@ -73,7 +73,7 @@ export function PageHome({ api, tab: tabProp, setTab: setTabProp, lang = "en", t
       onPointerUp={onPointerUp}
       style={{ touchAction: "pan-y" }}
     >
-      <div className="mb-3 text-xs text-white/50">Tap anywhere to toggle Overview ↔ Scenarios</div>
+      <div className="mb-3 text-xs text-white/50"> to toggle Overview ↔ Scenarios</div>
 
 
       {view === "overview" ? (
@@ -84,7 +84,7 @@ export function PageHome({ api, tab: tabProp, setTab: setTabProp, lang = "en", t
               <div className="text-sm text-white/70 pb-1">C {Cfinal == null ? "--" : String(Math.round(Cfinal))}</div>
               <div className="text-sm text-white/70 pb-1">Regime {String(regime7)}</div>
             </div>
-            <div className="mt-2 text-xs text-white/60">Tap anywhere to toggle Overview ↔ Scenarios</div>
+            <div className="mt-2 text-xs text-white/60"> to toggle Overview ↔ Scenarios</div>
           </Card>
 
           <Card title="Top scenario" subtitle="Most likely today">
