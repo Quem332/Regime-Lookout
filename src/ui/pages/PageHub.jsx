@@ -122,28 +122,14 @@ export function PageHub({ api, t: tProp }) {
   };
 
   return (
-    <div className="px-4 pb-6" style={{ touchAction: "pan-y" }}>
-      <div className="flex items-end justify-between mb-3">
-        <div>
-          <div className="text-xl font-bold tracking-tight text-white">MRI HUB</div>
-          <div className="text-sm text-white/70">Utilities &amp; info</div>
-        </div>
+    <div className="px-4 pt-20 pb-6" style={{ touchAction: "pan-y" }}>
+      <div className="flex items-center justify-end gap-2 mb-3">
+        {/* Hub controls (no duplicate title; top bar already shows HUB) */}
+        <Pill data-stop-toggle="1" onClick={(e) => { e.stopPropagation(); setLangSafe("en"); }}>EN</Pill>
+        <Pill data-stop-toggle="1" onClick={(e) => { e.stopPropagation(); setLangSafe("ko"); }}>KR</Pill>
+        <Pill data-stop-toggle="1" onClick={(e) => { e.stopPropagation(); onCopyScores(); }}>Copy Scores</Pill>
+      </div>
 
-        <div className="flex items-center gap-2">
-          {/* language toggle (Hub-only) */}
-          <Pill data-stop-toggle="1" onClick={(e) => { e.stopPropagation(); setLangSafe("en"); }}>
-            EN
-          </Pill>
-          <Pill data-stop-toggle="1" onClick={(e) => { e.stopPropagation(); setLangSafe("ko"); }}>
-            KR
-          </Pill>
-          {/* corner copy button */}
-          <Pill data-stop-toggle="1" onClick={(e) => { e.stopPropagation(); onCopyScores(); }}>
-            Copy Scores
-          </Pill>
-        </div>
-      
-</div>
 
       <div className="grid gap-3">
         <Card title={hub?.diagnosticsTitle ?? "Diagnostics"} subtitle={hub?.diagnosticsSub ?? "Quick health checks"}>

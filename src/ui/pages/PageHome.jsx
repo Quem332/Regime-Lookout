@@ -68,21 +68,13 @@ export function PageHome({ api, tab: tabProp, setTab: setTabProp, lang = "en", t
 
   return (
     <div
-      className="px-4 pb-6"
+      className="px-4 pt-20 pb-6"
       onPointerDown={onPointerDown}
       onPointerUp={onPointerUp}
       style={{ touchAction: "pan-y" }}
     >
-      <div className="flex items-start justify-between mb-3">
-        <div>
-          <div className="text-xs text-white/50">Tap anywhere to toggle</div>
-          <div className="text-sm text-white/70">{view === "overview" ? "Today" : "Scenarios"}</div>
-        </div>
-        <div className="text-right">
-          <div className="text-xs text-white/60">{marketLabel}</div>
-          <div className="text-xs text-white/60">NEXT {countdown}</div>
-        </div>
-      </div>
+      <div className="mb-3 text-xs text-white/50">Tap anywhere to toggle Overview ↔ Scenarios</div>
+
 
       {view === "overview" ? (
         <div className="grid gap-3">

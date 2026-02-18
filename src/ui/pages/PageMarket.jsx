@@ -101,21 +101,11 @@ export function PageMarket({ api, tab, setTab, lang = "en", t }) {
 
   return (
     <div
-      className="px-4 pb-6"
+      className="px-4 pt-20 pb-6"
       onPointerDown={onPointerDown}
       onPointerUp={onPointerUp}
       style={{ touchAction: "pan-y" }}
     >
-      <div className="flex items-end justify-between mb-3">
-        <div>
-          <div className="text-xl font-bold tracking-tight text-white">MARKET</div>
-          <div className="text-sm text-white/70">{view === "daily" ? "Daily" : "Intraday"}</div>
-        </div>
-        <div className="text-right">
-          <div className="text-xs text-white/60">{marketLabel}</div>
-          <div className="text-xs text-white/60">{hint}</div>
-        </div>
-      </div>
 
       {view === "daily" ? (
         <div className="grid gap-3">
