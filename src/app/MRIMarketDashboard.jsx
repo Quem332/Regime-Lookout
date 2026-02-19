@@ -72,7 +72,7 @@ export function MRIMarketDashboard() {
       : tFn("hub.title", "Info");
 
   return (
-    <div className="relative h-[100dvh] w-[100dvw] overflow-hidden bg-slate-950 text-white select-none">
+    <div {...nav.bind} className="relative h-[100dvh] w-[100dvw] overflow-hidden bg-slate-950 text-white select-none" style={{ touchAction: "pan-y" }}>
       {/* Top status bar */}
       <div className="absolute left-0 right-0 top-0 z-40 flex items-center justify-between px-4 py-3">
         <div className="min-w-0">
@@ -91,7 +91,7 @@ export function MRIMarketDashboard() {
       </div>
 
       {/* Viewport: allow vertical scroll inside pages; our nav only engages on clear horizontal swipe */}
-      <div {...nav.bind} className="h-full w-full" style={{ touchAction: "pan-y" }}>
+      <div className="h-full w-full">
         <div
           className="flex h-full"
           style={{
@@ -101,7 +101,7 @@ export function MRIMarketDashboard() {
           }}
         >
           {pages.map((p, i) => (
-            <div key={i} className="h-[100dvh] w-[100dvw] overflow-x-hidden overflow-y-auto pt-16">
+            <div key={i} className="h-[100dvh] w-[100dvw] overflow-x-hidden overflow-y-auto pt-16" style={{ touchAction: "pan-y" }}>
               {p}
             </div>
           ))}

@@ -1,6 +1,22 @@
 import { getTagBilingual } from "../../core/tagGlossary";
 
-export function Pill({ children, tone = "gray", label, msg, lang = "en", title }) {
+/**
+ * Pill / Chip component.
+ * - By default renders a <span>.
+ * - If onClick is provided, renders a <button type="button"> so it is truly interactive.
+ * - Pass-through props supported (data-*, onClick, className, etc).
+ */
+export function Pill({
+  children,
+  tone = "gray",
+  label,
+  msg,
+  lang = "en",
+  title,
+  className = "",
+  onClick,
+  ...rest
+}) {
   // Display text
   let display = children ?? label ?? "";
   let rawLabel = label ?? "";
@@ -32,11 +48,28 @@ export function Pill({ children, tone = "gray", label, msg, lang = "en", title }
     tooltip = lang === "ko" ? (bi.koMsg || bi.enMsg || rawMsg) : (bi.enMsg || rawMsg || bi.koMsg);
   }
 
+  const baseCls = `inline-flex items-center px-2.5 py-1 rounded-full border text-xs ${toneMap[tone]} ${className}`.trim();
+
+  // If clickable, use <button> so it actually receives click/tap, focus, etc.
+  if (typeof onClick === "function") {
+    return (
+      <button
+        type="button"
+        className={baseCls}
+        title={tooltip || undefined}
+        onClick={onClick}
+        // Help nav / tap-to-toggle systems ignore this element as a gesture origin.
+        data-no-tap-nav="1"
+        data-stop-toggle="1"
+        {...rest}
+      >
+        {display}
+      </button>
+    );
+  }
+
   return (
-    <span
-      className={`inline-flex items-center px-2.5 py-1 rounded-full border text-xs ${toneMap[tone]}`}
-      title={tooltip || undefined}
-    >
+    <span className={baseCls} title={tooltip || undefined} {...rest}>
       {display}
     </span>
   );
