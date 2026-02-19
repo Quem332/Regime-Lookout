@@ -49,8 +49,8 @@ export function MRIMarketDashboard() {
 
   const pages = useMemo(
     () => [
-      <PageHome key="home" api={api} tab={homeTab} setTab={setHomeTab} t={tFn} />,
-      <PageMarket key="market" api={api} tab={marketTab} setTab={setMarketTab} t={tFn} />,
+      <PageHome key="home" api={api} tab={homeTab} setTab={setHomeTab} t={tFn} lang={lang} />,
+      <PageMarket key="market" api={api} tab={marketTab} setTab={setMarketTab} t={tFn} lang={lang} />,
       <PageHub key="hub" api={api} t={tFn} lang={lang} onToggleLang={onToggleLang} />,
     ],
     [api, homeTab, marketTab, tFn, lang]

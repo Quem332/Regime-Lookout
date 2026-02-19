@@ -128,10 +128,10 @@ export function PageHub({ api, t, lang, onToggleLang }) {
       {/* No duplicate title here; top bar already shows HUB */}
 
       <div className="flex items-center justify-between mb-3">
-        <div className="text-sm text-white/70">{hubTitle}</div>
+        <div />
         <div className="flex items-center gap-2">
           <Pill data-stop-toggle="1" onClick={(e) => { e.stopPropagation(); onToggleLang?.(); }}>
-            {lang === "ko" ? "K" : "E"}/{lang === "ko" ? "E" : "K"}
+            {t?.("ui.langToggle", "K/E") ?? "K/E"}
           </Pill>
           <Pill data-stop-toggle="1" onClick={(e) => { e.stopPropagation(); onCopyExport(); }}>
             Copy Export

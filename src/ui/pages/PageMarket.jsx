@@ -102,7 +102,7 @@ export function PageMarket({ api, tab, setTab, t }) {
 
           <Card title="Note" subtitle="Off-hours behavior">
             <div className="text-sm text-white/70 leading-relaxed">
-              Off-hours, the app defaults to Daily view. Intraday is for market-hours diagnostics only.
+              {t?.("ui.intradayNote", "Off-hours, the app defaults to Daily view. Intraday is for market-hours diagnostics only.") ?? "Off-hours, the app defaults to Daily view. Intraday is for market-hours diagnostics only."}
             </div>
           </Card>
         </div>
