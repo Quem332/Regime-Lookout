@@ -8,6 +8,7 @@ import { PageMarket } from "../ui/pages/PageMarket";
 import { PageHub } from "../ui/pages/PageHub";
 
 import { StatusPill } from "../ui/components/StatusPill";
+import { ErrorBoundary } from "../ui/components/ErrorBoundary";
 
 import { I18N, createT } from "../core/i18n";
 import { loadLang, saveLang } from "../storage/localSettings";
@@ -51,9 +52,9 @@ export function MRIMarketDashboard() {
 
   const pages = useMemo(
     () => [
-      <PageHome key="home" api={api} tab={homeTab} setTab={setHomeTab} t={tFn} lang={lang} />,
-      <PageMarket key="market" api={api} tab={marketTab} setTab={setMarketTab} t={tFn} lang={lang} />,
-      <PageHub key="hub" api={api} t={tFn} lang={lang} onToggleLang={onToggleLang} />,
+      <ErrorBoundary key="home" title="HOME"><PageHome api={api} tab={homeTab} setTab={setHomeTab} t={tFn} lang={lang} /></ErrorBoundary>,
+      <ErrorBoundary key="market" title="MARKET"><PageMarket api={api} tab={marketTab} setTab={setMarketTab} t={tFn} lang={lang} /></ErrorBoundary>,
+      <ErrorBoundary key="hub" title="HUB"><PageHub api={api} t={tFn} lang={lang} onToggleLang={onToggleLang} /></ErrorBoundary>,
     ],
     [api, homeTab, marketTab, tFn, lang]
   );

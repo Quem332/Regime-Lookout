@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useState } from "react";
 import { Card } from "../components/Card";
 import { loadLookback, saveLookback } from "../../storage/localSettings";
+import { buildMriViewModel, tSafe } from "../render/mriPipeline";
 
 function isInteractiveTarget(el) {
   try {
@@ -21,13 +22,13 @@ function isTapLike(start, end, maxDist = 10, maxMs = 320) {
 // - B-1: scenarios focus (no score)
 // - B-2: breakdown (inputs + quadrant)
 export function PageMarket({ api, tab, setTab, t }) {
-  const mri = api?.mri;
-  const daily = mri?.daily || null;
+  const vm = useMemo(() => buildMriViewModel({ api, t }), [api, t]);
+  const daily = vm.raw.daily;
 
   // Forward-compatible period support.
   // If backend emits period aggregates later, attach them under mri.period.
   const [lookback, setLookback] = useState(() => loadLookback("252d"));
-  const period = mri?.period?.[lookback] || null;
+  const period = api?.mri?.period?.[lookback] || null;
   const viewModel = period || daily;
 
   const view = tab ?? "b1"; // b1 | b2

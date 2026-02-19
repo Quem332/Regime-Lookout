@@ -2,6 +2,7 @@ import React, { useMemo, useRef } from "react";
 import { Card } from "../components/Card";
 import { Pill } from "../components/Pill";
 import { buildOneLineVerdict } from "../../core/verdict";
+import { buildMriViewModel, tSafe } from "../render/mriPipeline";
 
 function isInteractiveTarget(el) {
   try {
@@ -19,10 +20,10 @@ function isTapLike(start, end, maxDist = 10, maxMs = 320) {
 }
 
 export function PageHome({ api, tab, setTab, t, lang }) {
-  const mri = api?.mri;
-  const daily = mri?.daily || null;
-  const status = mri?.status || null;
-  const asOf = daily?.asOf ?? api?.asOf ?? mri?.asOf ?? "";
+  const vm = useMemo(() => buildMriViewModel({ api, t }), [api, t]);
+  const daily = vm.raw.daily;
+  const status = vm.raw.status;
+  const asOf = vm.meta.asOf ?? "";
 
   // Two internal views:
   // A-1: score-centric summary (score+confidence+tags+probs)
@@ -92,7 +93,8 @@ const dotPos = useMemo(() => {
   return { left: ((xx + 3) / 6) * 100, top: (1 - (yy + 3) / 6) * 100 };
 }, [x, y]);
 
-  const marketOpen = Boolean(status?.marketOpen);
+  const intraday = vm.intraday.data;
+  const marketOpen = vm.meta.marketOpen;
   const countdown = status?.timers?.countdown ?? "--:--";
 
   const nextOpenInfo = useMemo(() => {
@@ -251,9 +253,9 @@ return (
     <Card title={t?.("a2.intra", "Intraday Diagnostics") ?? "Intraday Diagnostics"} subtitle={marketOpen ? (t?.("a2.intraOpen", "Live (market hours)") ?? "Live (market hours)") : (t?.("a2.intraClosed", "Off-hours") ?? "Off-hours")}>
       {marketOpen ? (
         <div className="text-xs text-white/70">
-          <div>z_short: {Number.isFinite(mri?.intraday?.zShort) ? Number(mri?.intraday?.zShort).toFixed(2) : "--"}</div>
-          <div>corrAvg: {Number.isFinite(mri?.intraday?.corrAvg) ? Number(mri?.intraday?.corrAvg).toFixed(2) : "--"}</div>
-          <div>corrSurge: {mri?.intraday?.corrSurge ? "YES" : "NO"}</div>
+          <div>z_short: {Number.isFinite(intraday?.zShort) ? Number(intraday?.zShort).toFixed(2) : "--"}</div>
+          <div>corrAvg: {Number.isFinite(intraday?.corrAvg) ? Number(intraday?.corrAvg).toFixed(2) : "--"}</div>
+          <div>corrSurge: {intraday?.corrSurge ? "YES" : "NO"}</div>
         </div>
       ) : (
         <div className="text-sm text-white/70 leading-relaxed">
