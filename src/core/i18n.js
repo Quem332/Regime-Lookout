@@ -124,6 +124,20 @@ export const I18N = {
       5: "Liquidity Party",
       6: "Stagflation",
     },
+    // A-1 copy pack (3-layer)
+    "copy.summary.na": "Insufficient data for a firm read.",
+    "copy.summary.high": "Conditions look relatively stable (risk-adjusted).",
+    "copy.summary.mid": "Mixed/transition conditions are observed; avoid forcing a single narrative.",
+    "copy.summary.low": "Risk pressure is elevated; treat the environment as fragile.",
+    "copy.summary.7c": "Undefined regime (hard gates not satisfied). Treat the read as low-conviction.",
+    "copy.summary.7b": "Signal-conflict regime (7B). Avoid single-scenario interpretation.",
+    "copy.summary.7a": "Low-magnitude / neutral regime (7A). Expect smaller signal content.",
+    "copy.warn.low": "Reliability is low: treat this as watch-only interpretation.",
+    "copy.warn.mid": "Reliability is moderate: keep conclusions conservative.",
+    "copy.warn.high": "Signal consistency is relatively good, but overconfidence is still a risk.",
+    "copy.warn.dispersed": "Scenario probabilities are dispersed: single-scenario conviction is limited.",
+    "copy.reasons.na": "No clear single driver dominates.",
+
   },
   ko: {
     appName: "MRI",
@@ -250,6 +264,20 @@ export const I18N = {
       5: "유동성 파티",
       6: "스태그플레이션",
     },
+    // A-1 문구(3층 구조: 요약/신뢰도 경고/근거)
+    "copy.summary.na": "단정할 만큼의 데이터가 충분하지 않습니다.",
+    "copy.summary.high": "리스크 조정 관점에서 비교적 안정 신호가 우세합니다.",
+    "copy.summary.mid": "혼조/전환 신호가 관측됩니다. 단일 내러티브로 단정하지 마세요.",
+    "copy.summary.low": "리스크 압력이 강화되어 환경이 취약할 수 있습니다.",
+    "copy.summary.7c": "정의 불가(게이트 미달, 7C) 구간입니다. 과도한 해석을 피하세요.",
+    "copy.summary.7b": "신호 충돌(7B) 구간입니다. 단일 시나리오로 결론 내리기 어렵습니다.",
+    "copy.summary.7a": "저신호/중립(7A) 구간입니다. 해석 강도를 낮추는 편이 안전합니다.",
+    "copy.warn.low": "신뢰도가 낮습니다. 관찰 중심으로 해석 강도를 낮추세요.",
+    "copy.warn.mid": "신뢰도가 중간입니다. 결론은 보수적으로 유지하세요.",
+    "copy.warn.high": "신호 일관성은 양호하지만, 과신은 여전히 위험합니다.",
+    "copy.warn.dispersed": "시나리오 확률이 분산되어 확신도가 제한됩니다.",
+    "copy.reasons.na": "뚜렷한 단일 근거가 지배적이지 않습니다.",
+
   },
 };
 

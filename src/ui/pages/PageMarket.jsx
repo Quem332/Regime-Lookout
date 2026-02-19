@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState } from "react";
 import { Card } from "../components/Card";
 import { loadLookback, saveLookback } from "../../storage/localSettings";
 import { buildMriViewModel, tSafe } from "../render/mriPipeline";
+import FactorBars from "../components/FactorBars";
 
 function isInteractiveTarget(el) {
   try {
@@ -123,24 +124,12 @@ export function PageMarket({ api, tab, setTab, t }) {
             </div>
           </Card>
 
-          <Card title={t?.("b1.note", "Note") ?? "Note"} subtitle={t?.("b1.noteSub", "Observational, not predictive") ?? "Observational, not predictive"}>
-            <div className="text-sm text-white/70 leading-relaxed">
-              {t?.("b1.noteText", "This page shows a scenario similarity distribution. It is not a forecast.") ?? "This page shows a scenario similarity distribution. It is not a forecast."}
-            </div>
-          </Card>
+          {/* Removed English note strip; disclaimer/policy lives in Hub. */}
         </div>
       ) : (
         <div className="grid gap-3">
-          <Card title={t?.("b2.inputs", "Inputs (Z)") ?? "Inputs (Z)"} subtitle={t?.("b2.inputsSub", "x, y, rates, usd, vix, goldFear") ?? "x, y, rates, usd, vix, goldFear"}>
-            <div className="text-xs text-white/70 whitespace-pre-wrap">
-              {Array.isArray(viewModel?.V)
-                ? JSON.stringify(
-                    viewModel.V.map((v) => (Number.isFinite(v) ? Math.round(v * 100) / 100 : null)),
-                    null,
-                    0
-                  )
-                : "--"}
-            </div>
+          <Card title={t?.("b2.factors", "Factors (6D)") ?? "Factors (6D)"} subtitle={t?.("b2.factorsSub", "z-score + raw snapshot") ?? "z-score + raw snapshot"}>
+            <FactorBars V={viewModel?.V} raw={api?.mri?.inputsRaw ?? api?.mri?.daily?.inputsRaw ?? api?.mri?.meta?.inputsRaw} />
           </Card>
 
           <Card title={t?.("ui.quadrant", "Position Map") ?? "Position Map"} subtitle={t?.("quadrant.subtitle", "Growth↔Defense, Inflow↔Outflow") ?? "Growth↔Defense, Inflow↔Outflow"}>

@@ -1,7 +1,8 @@
 import React, { useMemo, useRef } from "react";
 import { Card } from "../components/Card";
 import { Pill } from "../components/Pill";
-import { buildOneLineVerdict } from "../../core/verdict";
+import FactorBars from "../components/FactorBars";
+import { buildOneLineVerdict, buildScoreCopy } from "../../core/verdict";
 import { buildMriViewModel, tSafe } from "../render/mriPipeline";
 
 function isInteractiveTarget(el) {
@@ -81,6 +82,18 @@ const oneLine = useMemo(() => {
     tags: daily?.tags ?? null,
     t,
   });
+
+const scoreCopy = useMemo(() => {
+  return buildScoreCopy({
+    score: typeof score === "number" ? score : null,
+    Cfinal: typeof Cfinal === "number" ? Cfinal : null,
+    regime7: daily?.regime7 ?? null,
+    probs: daily?.probs ?? null,
+    tags: daily?.tags ?? null,
+    t,
+    lang,
+  });
+}, [score, Cfinal, daily?.regime7, daily?.probs, daily?.tags, t, lang]);
 }, [score, Cfinal, daily?.regime7, daily?.tags, t]);
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
@@ -160,7 +173,20 @@ return (
         </div>
       </div>
 
-      <div className="mt-2 text-sm text-white/80 leading-snug">{oneLine}</div>
+      <div className="mt-2 text-sm text-white/85 leading-snug">{view === "a1" ? (scoreCopy?.summary ?? "") : oneLine}</div>
+      {view === "a1" ? (
+        <>
+          <div className="mt-1 text-xs text-white/60 leading-snug">{scoreCopy?.warning ?? ""}</div>
+          <div className="mt-1 text-xs text-white/55 leading-snug">{scoreCopy?.reasonsText ?? ""}</div>
+          {Array.isArray(scoreCopy?.reasonTags) && scoreCopy.reasonTags.length ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {scoreCopy.reasonTags.map((tg, i) => (
+                <Pill key={`rt-${i}`} tone={tg.tone || "gray"} label={tg.label} msg={tg.msg} lang={lang} />
+              ))}
+            </div>
+          ) : null}
+        </>
+      ) : null}
 
       {/* Gauge */}
       <div className="mt-3 h-2 rounded-full bg-white/10 overflow-hidden">
@@ -174,11 +200,14 @@ return (
     {/* Tags first (readability) */}
     <Card title={t?.("ui.reasoningTags", "Reasoning Tags") ?? "Reasoning Tags"} subtitle={t?.("tags.subtitle", "Key drivers") ?? "Key drivers"}>
       <div className="flex flex-wrap gap-2">
-        {tags.length ? (
-          tags.map((x, i) => {
-            const key = typeof x === "string" ? x : (x?.key ?? x?.label ?? x?.text ?? x?.name ?? "");
-            const label = typeof x === "string" ? x : (x?.label ?? x?.text ?? x?.name ?? String(key));
-            return <Pill key={`${key}-${i}`} tagKey={String(key || label)} label={String(label)} lang={lang} />;
+        {(view === "a1" ? (scoreCopy?.reasonTags ?? []) : tags).length ? (
+          (view === "a1" ? (scoreCopy?.reasonTags ?? []) : tags).map((x, i) => {
+            const obj = typeof x === "string" ? { label: x, level: "neutral", msg: "" } : x;
+            const key = obj?.key ?? obj?.label ?? obj?.text ?? obj?.name ?? String(i);
+            const label = obj?.label ?? obj?.text ?? obj?.name ?? String(key);
+            const tone = obj?.tone ?? (String(obj?.level ?? "").includes("red") ? "red" : String(obj?.level ?? "").includes("yellow") ? "yellow" : String(obj?.level ?? "").includes("green") ? "green" : "gray");
+            const msg = obj?.msg ?? obj?.message ?? "";
+            return <Pill key={`${key}-${i}`} tone={tone} label={String(label)} msg={String(msg)} lang={lang} />;
           })
         ) : (
           <span className="text-xs text-white/60">--</span>
@@ -214,16 +243,8 @@ return (
 ) : (
   <div className="grid gap-3">
     {/* A-2: Breakdown */}
-    <Card title={t?.("a2.inputs", "Inputs (Z)") ?? "Inputs (Z)"} subtitle={t?.("a2.inputsSub", "x, y, rates, usd, vix, goldFear") ?? "x, y, rates, usd, vix, goldFear"}>
-      <div className="text-xs text-white/70 whitespace-pre-wrap">
-        {Array.isArray(daily?.V)
-          ? JSON.stringify(
-              daily.V.map((v) => (Number.isFinite(v) ? Math.round(v * 100) / 100 : null)),
-              null,
-              0
-            )
-          : "--"}
-      </div>
+    <Card title={t?.("a2.factors", "Factors (6D)") ?? "Factors (6D)"} subtitle={t?.("a2.factorsSub", "z-score + raw snapshot") ?? "z-score + raw snapshot"}>
+      <FactorBars V={daily?.V} raw={api?.mri?.inputsRaw ?? api?.mri?.daily?.inputsRaw ?? api?.mri?.meta?.inputsRaw} />
     </Card>
 
     <Card title={t?.("ui.quadrant", "Position Map") ?? "Position Map"} subtitle={t?.("quadrant.subtitle", "Growth↔Defense, Inflow↔Outflow") ?? "Growth↔Defense, Inflow↔Outflow"}>
