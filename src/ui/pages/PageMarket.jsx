@@ -1,6 +1,5 @@
-import React, { useEffect, useRef } from "react";
+import React, { useMemo, useRef } from "react";
 import { Card } from "../components/Card";
-import { isMarketOpenET } from "../../core/time.et";
 
 function isInteractiveTarget(el) {
   try {
@@ -10,31 +9,22 @@ function isInteractiveTarget(el) {
   }
 }
 
-function isTapLike(start, end) {
+function isTapLike(start, end, maxDist = 10, maxMs = 320) {
   const dx = Math.abs((end?.x ?? 0) - (start?.x ?? 0));
   const dy = Math.abs((end?.y ?? 0) - (start?.y ?? 0));
   const dt = (end?.t ?? 0) - (start?.t ?? 0);
-  return dx < 10 && dy < 10 && dt < 400;
+  return dx <= maxDist && dy <= maxDist && dt <= maxMs;
 }
 
+// B: "Daily" / "Period" view (not intraday)
+// - B-1: scenarios focus (no score)
+// - B-2: breakdown (inputs + quadrant)
 export function PageMarket({ api, tab, setTab, t }) {
   const mri = api?.mri;
   const daily = mri?.daily || null;
-  const intraday = mri?.intraday || null;
 
-  // Two internal views: daily | intraday
-  const view = tab ?? "daily";
+  const view = tab ?? "b1"; // b1 | b2
 
-  // Default: if market is closed -> daily, even if intraday exists.
-  useEffect(() => {
-    if (tab) return;
-    const open = isMarketOpenET(new Date());
-    const hasIntra = Boolean(intraday);
-    setTab?.(open && hasIntra ? "intraday" : "daily");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // tap-to-toggle internal view
   const downRef = useRef(null);
   const onPointerDown = (e) => {
     if (isInteractiveTarget(e.target)) return;
@@ -47,29 +37,65 @@ export function PageMarket({ api, tab, setTab, t }) {
     const end = { x: e.clientX, y: e.clientY, t: performance.now() };
     if (!start) return;
     if (!isTapLike(start, end)) return;
-    setTab?.((v) => (v === "daily" ? "intraday" : "daily"));
+    setTab?.((v) => (v === "b1" ? "b2" : "b1"));
   };
 
-  const intra = intraday || {};
-  const zShort = Number.isFinite(intra?.zShort) ? intra.zShort : null;
-  const corrAvg = Number.isFinite(intra?.corrAvg) ? intra.corrAvg : null;
-  const corrSurge = Boolean(intra?.corrSurge);
+  const probs = daily?.probs && typeof daily.probs === "object" ? daily.probs : {};
+  const probList = useMemo(() => {
+    return Object.entries(probs)
+      .filter(([, v]) => typeof v === "number" && Number.isFinite(v))
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6);
+  }, [daily?.probs]);
 
-  const score = Number.isFinite(daily?.score) ? daily.score : null;
-  const Cfinal = Number.isFinite(daily?.Cfinal) ? daily.Cfinal : null;
+  const V = daily?.V || daily?.vec || daily?.featuresZ || null;
+  const x = Array.isArray(V) ? V[0] : (V && typeof V === "object" ? V.x : null);
+  const y = Array.isArray(V) ? V[1] : (V && typeof V === "object" ? V.y : null);
+
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const dotPos = useMemo(() => {
+    const xx = x == null ? 0 : clamp(Number(x), -3, 3);
+    const yy = y == null ? 0 : clamp(Number(y), -3, 3);
+    return { left: ((xx + 3) / 6) * 100, top: (1 - (yy + 3) / 6) * 100 };
+  }, [x, y]);
 
   return (
-    <div className="px-4 pb-6" onPointerDown={onPointerDown} onPointerUp={onPointerUp} style={{ touchAction: "pan-y" }}>
-      {view === "daily" ? (
+    <div className="px-4 pb-6 min-h-[calc(100dvh-4rem)]" onPointerDown={onPointerDown} onPointerUp={onPointerUp} style={{ touchAction: "pan-y" }}>
+      {view === "b1" ? (
         <div className="grid gap-3">
-          <Card title={t?.("pages.A", "Daily") ?? "Daily"} subtitle="Anchor view">
-            <div className="flex items-end gap-3">
-              <div className="text-4xl font-extrabold text-white">{score == null ? "--" : String(Math.round(score))}</div>
-              <div className="text-sm text-white/70 pb-1">C {Cfinal == null ? "--" : String(Math.round(Cfinal))}</div>
+          <Card title={t?.("b1.title", "Daily Scenarios") ?? "Daily Scenarios"} subtitle={t?.("b1.subtitle", "Distribution view (no single-call)") ?? "Distribution view (no single-call)"}>
+            <div className="space-y-2">
+              {probList.length ? (
+                probList.map(([k, v]) => {
+                  const label = t?.(`scenarios.${k}`, `S${k}`) ?? `S${k}`;
+                  const pct = Math.round(v * 100);
+                  return (
+                    <div key={k} className="space-y-1">
+                      <div className="flex items-center justify-between text-xs text-white/80">
+                        <span className="truncate">{label}</span>
+                        <span className="tabular-nums">{pct}%</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+                        <div className="h-full rounded-full bg-white/30" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <span className="text-xs text-white/60">--</span>
+              )}
             </div>
           </Card>
 
-          <Card title="Inputs (Z)" subtitle="x, y, rates, usd, vix, goldFear">
+          <Card title={t?.("b1.note", "Note") ?? "Note"} subtitle={t?.("b1.noteSub", "Observational, not predictive") ?? "Observational, not predictive"}>
+            <div className="text-sm text-white/70 leading-relaxed">
+              {t?.("b1.noteText", "This page shows a scenario similarity distribution. It is not a forecast.") ?? "This page shows a scenario similarity distribution. It is not a forecast."}
+            </div>
+          </Card>
+        </div>
+      ) : (
+        <div className="grid gap-3">
+          <Card title={t?.("b2.inputs", "Inputs (Z)") ?? "Inputs (Z)"} subtitle={t?.("b2.inputsSub", "x, y, rates, usd, vix, goldFear") ?? "x, y, rates, usd, vix, goldFear"}>
             <div className="text-xs text-white/70 whitespace-pre-wrap">
               {Array.isArray(daily?.V)
                 ? JSON.stringify(
@@ -80,29 +106,29 @@ export function PageMarket({ api, tab, setTab, t }) {
                 : "--"}
             </div>
           </Card>
-        </div>
-      ) : (
-        <div className="grid gap-3">
-          <Card title={t?.("pages.D", "Intraday") ?? "Intraday"} subtitle="Fast signals">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="text-sm text-white/90">z_short</div>
-                <div className="text-sm text-white/70">{zShort == null ? "--" : zShort.toFixed(2)}</div>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="text-sm text-white/90">corrAvg</div>
-                <div className="text-sm text-white/70">{corrAvg == null ? "--" : corrAvg.toFixed(2)}</div>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="text-sm text-white/90">corrSurge</div>
-                <div className="text-sm text-white/70">{corrSurge ? "YES" : "NO"}</div>
-              </div>
-            </div>
-          </Card>
 
-          <Card title="Note" subtitle="Off-hours behavior">
-            <div className="text-sm text-white/70 leading-relaxed">
-              {t?.("ui.intradayNote", "Off-hours, the app defaults to Daily view. Intraday is for market-hours diagnostics only.") ?? "Off-hours, the app defaults to Daily view. Intraday is for market-hours diagnostics only."}
+          <Card title={t?.("ui.quadrant", "Position Map") ?? "Position Map"} subtitle={t?.("quadrant.subtitle", "Growth↔Defense, Inflow↔Outflow") ?? "Growth↔Defense, Inflow↔Outflow"}>
+            <div className="relative w-full aspect-[16/9] rounded-2xl bg-white/5 border border-white/10 overflow-hidden">
+              <div className="absolute inset-0">
+                <div className="absolute left-1/2 top-0 bottom-0 w-px bg-white/10" />
+                <div className="absolute top-1/2 left-0 right-0 h-px bg-white/10" />
+              </div>
+
+              <div className="absolute left-3 top-2 text-[10px] text-white/60">{t?.("quadrant.defense", "Defense") ?? "Defense"}</div>
+              <div className="absolute right-3 top-2 text-[10px] text-white/60">{t?.("quadrant.growth", "Growth") ?? "Growth"}</div>
+              <div className="absolute left-3 bottom-2 text-[10px] text-white/60">{t?.("quadrant.outflow", "Outflow") ?? "Outflow"}</div>
+              <div className="absolute right-3 bottom-2 text-[10px] text-white/60">{t?.("quadrant.inflow", "Inflow") ?? "Inflow"}</div>
+
+              <div
+                className="absolute w-3 h-3 rounded-full bg-white/70 shadow"
+                style={{ left: `calc(${dotPos.left}% - 6px)`, top: `calc(${dotPos.top}% - 6px)` }}
+                title={`x=${x == null ? "--" : Number(x).toFixed(2)}, y=${y == null ? "--" : Number(y).toFixed(2)}`}
+              />
+            </div>
+
+            <div className="mt-2 flex items-center justify-between text-xs text-white/70">
+              <span>x: {x == null ? "--" : Number(x).toFixed(2)}</span>
+              <span>y: {y == null ? "--" : Number(y).toFixed(2)}</span>
             </div>
           </Card>
         </div>

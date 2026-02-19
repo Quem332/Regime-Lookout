@@ -44,8 +44,10 @@ export function MRIMarketDashboard() {
   };
 
   // Inner tabs
-  const [homeTab, setHomeTab] = useState("overview"); // overview | scenarios
-  const [marketTab, setMarketTab] = useState("daily"); // daily | intraday
+  // A: intraday evaluation (A-1 Score, A-2 Breakdown)
+  const [homeTab, setHomeTab] = useState("a1"); // a1 | a2
+  // B: daily/period view (B-1 Scenarios, B-2 Breakdown)
+  const [marketTab, setMarketTab] = useState("b1"); // b1 | b2
 
   const pages = useMemo(
     () => [
@@ -62,13 +64,13 @@ export function MRIMarketDashboard() {
   const title = nav.index === 0 ? (tFn("nav.home","HOME")) : nav.index === 1 ? (tFn("nav.market","MARKET")) : (tFn("nav.hub","HUB"));
   const subtitle =
     nav.index === 0
-      ? homeTab === "overview"
-        ? tFn("daily.todayStatus", "Today")
-        : tFn("hub.nav", "Scenarios")
+      ? homeTab === "a1"
+        ? tFn("nav.a1", "Score")
+        : tFn("nav.a2", "Breakdown")
       : nav.index === 1
-      ? marketTab === "daily"
-        ? tFn("pages.A", "Daily")
-        : tFn("pages.D", "Intraday")
+      ? marketTab === "b1"
+        ? tFn("nav.b1", "Scenarios")
+        : tFn("nav.b2", "Data")
       : tFn("hub.title", "Info");
 
   return (
