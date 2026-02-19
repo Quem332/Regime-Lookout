@@ -38,6 +38,7 @@ async function copyToClipboard(text) {
 
 export function PageHub({ api, t, lang, onToggleLang }) {
   const hubTitle = t?.("hub.title", "Hub") ?? "Hub";
+  const tr = (k, fallback) => (typeof t === "function" ? (t(k, fallback) ?? fallback) : fallback);
 
   const [open, setOpen] = useState(false);
   const [modalTitle, setModalTitle] = useState("");
@@ -86,7 +87,7 @@ export function PageHub({ api, t, lang, onToggleLang }) {
     const logText =
       (typeof api?.logger?.exportText === "function" && api.logger.exportText()) ||
       "(logger.exportText unavailable)";
-    openTextModal("Logs", logText);
+    openTextModal(tr("hubUi.logsTitle", "Logs"), logText);
     api?.logger?.info?.("ui.hub_open_logs", { size: logText.length });
   };
 
@@ -102,14 +103,14 @@ export function PageHub({ api, t, lang, onToggleLang }) {
 
     const ok = await copyToClipboard(text);
     api?.logger?.info?.("ui.hub_copy_export", { ok, size: text.length });
-    if (!ok) alert("Copy failed.");
+    if (!ok) alert(tr("hubUi.copyFailed", "Copy failed."));
   };
 
   const onCopyLogs = async () => {
     const text = modalText || "";
     const ok = await copyToClipboard(text);
     api?.logger?.info?.("ui.hub_copy_logs", { ok, size: text.length });
-    if (!ok) alert("Copy failed.");
+    if (!ok) alert(tr("hubUi.copyFailed", "Copy failed."));
   };
 
   const onClearLocal = () => {
@@ -120,7 +121,7 @@ export function PageHub({ api, t, lang, onToggleLang }) {
       sessionStorage.clear();
     } catch {}
     api?.logger?.warn?.("ui.hub_clear_storage", { ok: true });
-    alert("Cleared local storage.");
+    alert(tr("hubUi.cleared", "Cleared local storage."));
   };
 
   return (
@@ -134,33 +135,36 @@ export function PageHub({ api, t, lang, onToggleLang }) {
             {t?.("ui.langToggle", "K/E") ?? "K/E"}
           </Pill>
           <Pill data-stop-toggle="1" onClick={(e) => { e.stopPropagation(); onCopyExport(); }}>
-            Copy Export
+            {tr("hubUi.copyExport", "Copy Export")}
           </Pill>
         </div>
       </div>
 
       <div className="grid gap-3">
-        <Card title="Debug" subtitle="Logs / export">
+        <Card title={tr("hubUi.debugTitle", "Debug")} subtitle={tr("hubUi.debugSub", "Logs / export")}>
           <div className="flex gap-2 flex-wrap">
-            <Pill data-stop-toggle="1" onClick={(e) => { e.stopPropagation(); onOpenLogs(); }}>Open Logs</Pill>
-            <Pill data-stop-toggle="1" onClick={(e) => { e.stopPropagation(); onClearLocal(); }}>Clear Local</Pill>
+            <Pill data-stop-toggle="1" onClick={(e) => { e.stopPropagation(); onOpenLogs(); }}>{tr("ui.openLogs", "Open Logs")}</Pill>
+            <Pill data-stop-toggle="1" onClick={(e) => { e.stopPropagation(); onClearLocal(); }}>{tr("ui.clearLocal", "Clear Local")}</Pill>
           </div>
           <div className="mt-2 text-xs text-white/60">
             {status?.market?.label ? `SYNC: ${status.market.label}` : ""}
           </div>
         </Card>
 
-        <Card title="About" subtitle="Interpretation, not prediction">
+        <Card title={tr("hubUi.aboutTitle", "About")} subtitle={tr("hubUi.aboutSub", "Interpretation, not prediction")}>
           <div className="text-sm text-white/70 leading-relaxed">
-            Informational only. Not financial advice. Use at your own risk. Data may be delayed or unavailable.
+            {tr(
+              "hubUi.aboutText",
+              "Informational only. Not financial advice. Use at your own risk. Data may be delayed or unavailable."
+            )}
           </div>
         </Card>
       </div>
 
       <Modal open={open} onClose={() => setOpen(false)} title={modalTitle || ""}>
         <div className="flex justify-end gap-2">
-          <Pill data-stop-toggle="1" onClick={(e) => { e.stopPropagation(); onCopyLogs(); }}>Copy</Pill>
-          <Pill data-stop-toggle="1" onClick={(e) => { e.stopPropagation(); setOpen(false); }}>Close</Pill>
+          <Pill data-stop-toggle="1" onClick={(e) => { e.stopPropagation(); onCopyLogs(); }}>{tr("hubUi.copy", "Copy")}</Pill>
+          <Pill data-stop-toggle="1" onClick={(e) => { e.stopPropagation(); setOpen(false); }}>{tr("hubUi.close", "Close")}</Pill>
         </div>
 
         <pre

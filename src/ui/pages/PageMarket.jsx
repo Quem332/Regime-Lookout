@@ -1,5 +1,6 @@
-import React, { useMemo, useRef } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { Card } from "../components/Card";
+import { loadLookback, saveLookback } from "../../storage/localSettings";
 
 function isInteractiveTarget(el) {
   try {
@@ -23,6 +24,12 @@ export function PageMarket({ api, tab, setTab, t }) {
   const mri = api?.mri;
   const daily = mri?.daily || null;
 
+  // Forward-compatible period support.
+  // If backend emits period aggregates later, attach them under mri.period.
+  const [lookback, setLookback] = useState(() => loadLookback("252d"));
+  const period = mri?.period?.[lookback] || null;
+  const viewModel = period || daily;
+
   const view = tab ?? "b1"; // b1 | b2
 
   const downRef = useRef(null);
@@ -40,15 +47,15 @@ export function PageMarket({ api, tab, setTab, t }) {
     setTab?.((v) => (v === "b1" ? "b2" : "b1"));
   };
 
-  const probs = daily?.probs && typeof daily.probs === "object" ? daily.probs : {};
+  const probs = viewModel?.probs && typeof viewModel.probs === "object" ? viewModel.probs : {};
   const probList = useMemo(() => {
     return Object.entries(probs)
       .filter(([, v]) => typeof v === "number" && Number.isFinite(v))
       .sort((a, b) => b[1] - a[1])
       .slice(0, 6);
-  }, [daily?.probs]);
+  }, [viewModel?.probs]);
 
-  const V = daily?.V || daily?.vec || daily?.featuresZ || null;
+  const V = viewModel?.V || viewModel?.vec || viewModel?.featuresZ || null;
   const x = Array.isArray(V) ? V[0] : (V && typeof V === "object" ? V.x : null);
   const y = Array.isArray(V) ? V[1] : (V && typeof V === "object" ? V.y : null);
 
@@ -61,6 +68,34 @@ export function PageMarket({ api, tab, setTab, t }) {
 
   return (
     <div className="px-4 pb-6 min-h-[calc(100dvh-4rem)]" onPointerDown={onPointerDown} onPointerUp={onPointerUp} style={{ touchAction: "pan-y" }}>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="text-xs text-white/60">
+          {t?.("b.lookback", "Lookback") ?? "Lookback"}: {lookback.toUpperCase()}
+          {period ? "" : ` · ${t?.("b.na", "(data not available yet)") ?? "(data not available yet)"}`}
+        </div>
+        <div className="flex items-center gap-1">
+          {[
+            { k: "20d", label: "20D" },
+            { k: "60d", label: "60D" },
+            { k: "252d", label: "252D" },
+          ].map((opt) => (
+            <button
+              key={opt.k}
+              type="button"
+              data-stop-toggle="1"
+              onClick={(e) => {
+                e.stopPropagation();
+                setLookback(opt.k);
+                saveLookback(opt.k);
+                api?.logger?.info?.("ui.market_set_lookback", { lookback: opt.k });
+              }}
+              className={`px-2 py-1 rounded-full text-[11px] border ${lookback === opt.k ? "bg-white/20 border-white/30" : "bg-white/5 border-white/10"}`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
       {view === "b1" ? (
         <div className="grid gap-3">
           <Card title={t?.("b1.title", "Daily Scenarios") ?? "Daily Scenarios"} subtitle={t?.("b1.subtitle", "Distribution view (no single-call)") ?? "Distribution view (no single-call)"}>
@@ -97,9 +132,9 @@ export function PageMarket({ api, tab, setTab, t }) {
         <div className="grid gap-3">
           <Card title={t?.("b2.inputs", "Inputs (Z)") ?? "Inputs (Z)"} subtitle={t?.("b2.inputsSub", "x, y, rates, usd, vix, goldFear") ?? "x, y, rates, usd, vix, goldFear"}>
             <div className="text-xs text-white/70 whitespace-pre-wrap">
-              {Array.isArray(daily?.V)
+              {Array.isArray(viewModel?.V)
                 ? JSON.stringify(
-                    daily.V.map((v) => (Number.isFinite(v) ? Math.round(v * 100) / 100 : null)),
+                    viewModel.V.map((v) => (Number.isFinite(v) ? Math.round(v * 100) / 100 : null)),
                     null,
                     0
                   )

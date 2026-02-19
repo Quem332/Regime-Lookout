@@ -1,6 +1,7 @@
 import React, { useMemo, useRef } from "react";
 import { Card } from "../components/Card";
 import { Pill } from "../components/Pill";
+import { buildOneLineVerdict } from "../../core/verdict";
 
 function isInteractiveTarget(el) {
   try {
@@ -72,21 +73,14 @@ const scoreLabel = useMemo(() => {
 }, [score, t]);
 
 const oneLine = useMemo(() => {
-  // Keep this observational, not predictive.
-  const s = typeof score === "number" ? score : null;
-  const c = typeof Cfinal === "number" ? Cfinal : null;
-  if (s == null) return t?.("score.oneLine.na", "No score signal.") ?? "No score signal.";
-  const lowC = c != null && c < 45;
-  if (s >= 67) return lowC
-    ? (t?.("score.oneLine.calmLowC", "Looks calm, but confidence is limited.") ?? "Looks calm, but confidence is limited.")
-    : (t?.("score.oneLine.calm", "Conditions look relatively stable (risk-adjusted).") ?? "Conditions look relatively stable (risk-adjusted).");
-  if (s >= 34) return lowC
-    ? (t?.("score.oneLine.watchLowC", "Mixed signals; keep interpretation cautious.") ?? "Mixed signals; keep interpretation cautious.")
-    : (t?.("score.oneLine.watch", "Mixed/transition regime; watch risk structure.") ?? "Mixed/transition regime; watch risk structure.");
-  return lowC
-    ? (t?.("score.oneLine.riskLowC", "Risky tone, and confidence is limited.") ?? "Risky tone, and confidence is limited.")
-    : (t?.("score.oneLine.risk", "Risk pressure is elevated (risk-adjusted).") ?? "Risk pressure is elevated (risk-adjusted).");
-}, [score, Cfinal, t]);
+  return buildOneLineVerdict({
+    score: typeof score === "number" ? score : null,
+    Cfinal: typeof Cfinal === "number" ? Cfinal : null,
+    regime7: daily?.regime7 ?? null,
+    tags: daily?.tags ?? null,
+    t,
+  });
+}, [score, Cfinal, daily?.regime7, daily?.tags, t]);
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
