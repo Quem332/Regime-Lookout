@@ -82,6 +82,7 @@ const oneLine = useMemo(() => {
     tags: daily?.tags ?? null,
     t,
   });
+}, [score, Cfinal, daily?.regime7, daily?.tags, t]);
 
 const scoreCopy = useMemo(() => {
   return buildScoreCopy({
