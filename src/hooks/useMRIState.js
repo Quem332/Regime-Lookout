@@ -13,7 +13,9 @@ import { idbGet, idbSet } from "../storage/idb";
 
 /**
  * Mobile-only data source:
- *  - public/data/latest.json   (updated by GitHub Actions)
+ *  - public/data/daily_latest.json     (EOD / on-push)
+ *  - public/data/intraday_latest.json  (market hours)
+ *  - (fallback) public/data/latest.json (legacy single-file)
  *  - public/data/calendar.json (optional; used to temporarily increase refresh frequency around events)
  *
  * NOTE: We always add a cache-busting query param + request no-store to avoid stale SW/HTTP caches.
@@ -27,7 +29,9 @@ import { idbGet, idbSet } from "../storage/idb";
 const APP_BASE = import.meta.env.BASE_URL ?? "/";
 const ABS_BASE = new URL(APP_BASE, document.baseURI).toString();
 
-const LATEST_URL = new URL("data/latest.json", ABS_BASE).toString();
+const DAILY_URL = new URL("data/daily_latest.json", ABS_BASE).toString();
+const INTRADAY_URL = new URL("data/intraday_latest.json", ABS_BASE).toString();
+const LEGACY_LATEST_URL = new URL("data/latest.json", ABS_BASE).toString();
 const CAL_URL = new URL("data/calendar.json", ABS_BASE).toString();
 
 // Display latency buckets (minutes)
@@ -468,11 +472,39 @@ try {
   const refreshLatest = async () => {
     const started = performance.now();
     const bust = `?t=${Date.now()}`;
-    const raw = await fetchJson(`${LATEST_URL}${bust}`, { timeoutMs: 15_000 });
+
+    // Prefer split files (daily + intraday). If not present, fall back to legacy single-file.
+    const [daily, intraday] = await Promise.all([
+      fetchJson(`${DAILY_URL}${bust}`, { timeoutMs: 15_000 }).catch(() => null),
+      fetchJson(`${INTRADAY_URL}${bust}`, { timeoutMs: 15_000 }).catch(() => null),
+    ]);
+
+    const raw = daily || intraday
+      ? {
+          schemaVersion: daily?.schemaVersion || intraday?.schemaVersion || "2.3",
+          asOf: daily?.asOf || intraday?.asOf || null,
+          lastTradingDay: daily?.lastTradingDay || null,
+          // Daily inputs
+          featuresZ: daily?.featuresZ || null,
+          periods: daily?.periods || null,
+          // Intraday inputs
+          intraday: intraday?.intraday || null,
+          // Meta
+          dataHealth: daily?.dataHealth || intraday?.dataHealth || null,
+          latencyMin:
+            typeof intraday?.latencyMin === "number"
+              ? intraday.latencyMin
+              : typeof daily?.latencyMin === "number"
+                ? daily.latencyMin
+                : null,
+          fetchedAt: intraday?.fetchedAt || daily?.fetchedAt || null,
+          _sources: { daily: !!daily, intraday: !!intraday },
+        }
+      : await fetchJson(`${LEGACY_LATEST_URL}${bust}`, { timeoutMs: 15_000 });
 
     const norm = normalizeLatest(raw);
     if (!norm.ok) {
-      const errMsg = norm.error || "latest.json invalid";
+      const errMsg = norm.error || "data files invalid";
       healthRef.current = {
         ...healthRef.current,
         lastError: errMsg,

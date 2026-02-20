@@ -1,0 +1,66 @@
+name: Update Daily Data (EOD)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/**'
+  schedule:
+    # Runs hourly; script will skip unless market is likely closed.
+    # (DST-safe: we do gating in-script.)
+    - cron: '15 * * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-daily
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Gate: skip unless after US market close (ET)
+        run: |
+          python - <<'PY'
+          import datetime
+          from zoneinfo import ZoneInfo
+          et = ZoneInfo('America/New_York')
+          now = datetime.datetime.now(tz=et)
+          # Basic gating: update after 16:15 ET on weekdays; anytime on weekend.
+          if now.weekday() >= 5:
+              print('Weekend -> run')
+              raise SystemExit(0)
+          if (now.hour, now.minute) >= (16, 15):
+              print('After close -> run')
+              raise SystemExit(0)
+          print('Before close -> skip')
+          raise SystemExit(2)
+          PY
+        continue-on-error: true
+
+      - name: Build daily_latest.json
+        run: node scripts/fetch_daily.js
+
+      - name: Commit & push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/data/daily_latest.json
+          git diff --cached --quiet || git commit -m "data(daily): refresh daily_latest.json"
+          git push
