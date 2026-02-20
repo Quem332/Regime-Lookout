@@ -131,7 +131,7 @@ return (
       {/* No local page title; top bar handles it */}
 
       {/* Off-hours overlay (A is still readable; overlay is informational) */}
-      {!marketOpen ? (
+      {scoreLocked ? (
         <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40" />
           <div className="relative mx-6 w-full max-w-sm rounded-2xl border border-white/15 bg-slate-950/80 p-4 text-center">

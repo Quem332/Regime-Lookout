@@ -162,6 +162,128 @@ function isMarketOpenET(now) {
   }
 }
 
+function getTZOffsetMinutes(date, timeZone) {
+  const utcDate = new Date(date.toLocaleString("en-US", { timeZone: "UTC" }));
+  const tzDate = new Date(date.toLocaleString("en-US", { timeZone }));
+  return (utcDate - tzDate) / 60000;
+}
+
+function makeDateInTimeZone({ year, month, day, hour, minute, timeZone }) {
+  const guessUtc = new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0));
+  const off1 = getTZOffsetMinutes(guessUtc, timeZone);
+  const pass1 = new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0) + off1 * 60_000);
+  const off2 = getTZOffsetMinutes(pass1, timeZone);
+  return new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0) + off2 * 60_000);
+}
+
+function getETParts(date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    weekday: "short",
+    hour12: false,
+  }).formatToParts(date);
+  const out = {};
+  for (const p of parts) {
+    if (p.type !== "literal") out[p.type] = p.value;
+  }
+  return {
+    year: Number(out.year),
+    month: Number(out.month),
+    day: Number(out.day),
+    hour: Number(out.hour),
+    minute: Number(out.minute),
+    second: Number(out.second),
+    weekday: out.weekday,
+  };
+}
+
+function etDateKey(date) {
+  const p = getETParts(date);
+  return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+}
+
+function computeMarketClock(now = new Date()) {
+  const p = getETParts(now);
+  const wd = p.weekday;
+  const isWeekend = wd === "Sat" || wd === "Sun";
+  const mins = p.hour * 60 + p.minute;
+
+  const PRE = 4 * 60;
+  const OPEN = 9 * 60 + 30;
+  const CLOSE = 16 * 60;
+
+  let phase = "CLOSED";
+  if (!isWeekend) {
+    if (mins >= PRE && mins < OPEN) phase = "PREMARKET";
+    else if (mins >= OPEN && mins < CLOSE) phase = "OPEN";
+    else phase = "CLOSED";
+  }
+
+  let y = p.year, m = p.month, d = p.day;
+  const dayIndexMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  let dow = dayIndexMap[wd] ?? 0;
+
+  function addDaysET(n) {
+    const base = makeDateInTimeZone({ year: y, month: m, day: d, hour: 12, minute: 0, timeZone: "America/New_York" });
+    const moved = new Date(base.getTime() + n * 24 * 60 * 60 * 1000);
+    const pp = getETParts(moved);
+    y = pp.year; m = pp.month; d = pp.day;
+    dow = dayIndexMap[pp.weekday] ?? dow;
+  }
+
+  let openDayOffset = 0;
+  if (isWeekend) {
+    openDayOffset = (8 - dow) % 7;
+    if (openDayOffset === 0) openDayOffset = 1;
+  } else {
+    if (mins < OPEN) openDayOffset = 0;
+    else {
+      openDayOffset = 1;
+      if (dow === 5) openDayOffset = 3;
+      if (dow === 6) openDayOffset = 2;
+    }
+  }
+
+  if (openDayOffset) addDaysET(openDayOffset);
+  if (dow === 0) addDaysET(1);
+  if (dow === 6) addDaysET(2);
+
+  const nextOpen = makeDateInTimeZone({ year: y, month: m, day: d, hour: 9, minute: 30, timeZone: "America/New_York" });
+  const nextPremarket = makeDateInTimeZone({ year: y, month: m, day: d, hour: 4, minute: 0, timeZone: "America/New_York" });
+
+  const secondsToOpen = Math.max(0, Math.floor((nextOpen.getTime() - now.getTime()) / 1000));
+  const secondsToPremarket = Math.max(0, Math.floor((nextPremarket.getTime() - now.getTime()) / 1000));
+
+  const openToday = makeDateInTimeZone({ year: p.year, month: p.month, day: p.day, hour: 9, minute: 30, timeZone: "America/New_York" });
+  const minutesSinceOpen = phase === "OPEN" ? Math.max(0, Math.floor((now.getTime() - openToday.getTime()) / 60000)) : null;
+
+  return {
+    phase,
+    nextOpenISO: nextOpen.toISOString(),
+    nextPremarketISO: nextPremarket.toISOString(),
+    secondsToOpen,
+    secondsToPremarket,
+    minutesSinceOpen,
+  };
+}
+
+function formatHMS(totalSec) {
+  const s = Math.max(0, Math.floor(totalSec));
+  const hh = String(Math.floor(s / 3600)).padStart(2, "0");
+  const mm = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
+  const ss = String(s % 60).padStart(2, "0");
+  return `${hh}:${mm}:${ss}`;
+}
+
+
+
+
 function computeNextHalfHour(now) {
   const d = new Date(now.getTime());
   d.setSeconds(0, 0);
@@ -186,6 +308,11 @@ export function useMRIState() {
   const buildDailyFromFeatures = ({ featuresZ, meta }) => {
     const started = performance.now();
     const V = [featuresZ.x, featuresZ.y, featuresZ.rates, featuresZ.usd, featuresZ.vix, featuresZ.goldFear].map((v) => num(v, 0));
+
+    const isAllZeroV = V.every((v) => v === 0);
+    if (isAllZeroV && daily && daily?.meta?.dataHealthLevel !== "MOCK") {
+      return;
+    }
 
     const latencyMin = meta?.latencyMin ?? meta?.latencyMinutes ?? meta?.latency ?? null;
 const healthLevel = meta?.dataHealth?.level ?? meta?.dataHealthLevel ?? null;
@@ -474,6 +601,21 @@ try {
     const tonePack = latencyTone(latencyMin);
 
     const now = new Date(nowMs);
+    const marketClock = computeMarketClock(now);
+
+    const asOfETKey = asOfDate ? etDateKey(asOfDate) : null;
+    const nowETKey = etDateKey(now);
+    const dataIsToday = !!asOfETKey && asOfETKey === nowETKey;
+
+    const scoreLocked =
+      marketClock.phase === "PREMARKET" || (marketClock.phase === "OPEN" && !dataIsToday);
+
+    const scoreLockReason =
+      marketClock.phase === "PREMARKET"
+        ? { kind: "PREMARKET", eta: formatHMS(marketClock.secondsToOpen) }
+        : marketClock.phase === "OPEN" && !dataIsToday
+          ? { kind: "OPEN_WARMUP", minutesSinceOpen: marketClock.minutesSinceOpen ?? null }
+          : null;
     const marketOpen = isMarketOpenET(now);
     const eventWindow = marketOpen ? isInEventWindow(now, calRef.current.events || [], 15) : { active: false, event: null, diffMs: null };
     const next = computeNextHalfHour(now);
@@ -567,6 +709,9 @@ try {
         pollMs,
       },
       marketOpen,
+    marketClock,
+    scoreLocked,
+    scoreLockReason,
       events: calRef.current.events || [],
       eventWindow,
     };
