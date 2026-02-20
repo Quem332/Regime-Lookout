@@ -95,7 +95,6 @@ const scoreCopy = useMemo(() => {
     lang,
   });
 }, [score, Cfinal, daily?.regime7, daily?.probs, daily?.tags, t, lang]);
-}, [score, Cfinal, daily?.regime7, daily?.tags, t]);
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
