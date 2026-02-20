@@ -2,7 +2,11 @@ import React, { useMemo, useRef } from "react";
 import { Card } from "../components/Card";
 import { Pill } from "../components/Pill";
 import FactorBars from "../components/FactorBars";
+<<<<<<< HEAD
 import { buildOneLineVerdict, buildScoreCopy } from "../../core/verdict";
+=======
+import { buildOneLineVerdict } from "../../core/verdict";
+>>>>>>> 31da218 (UI: swipe daily/intraday + period factors)
 import { buildMriViewModel, tSafe } from "../render/mriPipeline";
 
 function isInteractiveTarget(el) {
@@ -137,23 +141,63 @@ return (
     <div className="relative px-4 pb-6 min-h-[calc(100dvh-4rem)]" onPointerDown={onPointerDown} onPointerUp={onPointerUp} style={{ touchAction: "pan-y" }}>
       {/* No local page title; top bar handles it */}
 
+<<<<<<< HEAD
       {/* Off-hours overlay (A is still readable; overlay is informational) */}
       {scoreLocked ? (
+=======
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <button type="button" className={`px-3 py-1.5 rounded-full text-xs border ${view==="a1"?"bg-white/10 border-white/20 text-white":"bg-transparent border-white/10 text-white/70"}`} onClick={()=>setView("a1")}>
+            {tSafe(lang, "home.tabDaily", "Daily")}
+          </button>
+          <button type="button" className={`px-3 py-1.5 rounded-full text-xs border ${view==="a2"?"bg-white/10 border-white/20 text-white":"bg-transparent border-white/10 text-white/70"}`} onClick={()=>setView("a2")}>
+            {tSafe(lang, "home.tabIntraday", "Intraday")}
+          </button>
+        </div>
+        <div className="text-[11px] text-white/50">{tSafe(lang, "home.swipeHint", "Swipe ←/→")}</div>
+      </div>
+
+            {/* Market overlay: only blocks Intraday view (Daily stays readable) */}
+      {view === "a2" && (!marketOpen || (marketOpen && !status?.intraday?.prices)) ? (
+>>>>>>> 31da218 (UI: swipe daily/intraday + period factors)
         <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40" />
           <div className="relative mx-6 w-full max-w-sm rounded-2xl border border-white/15 bg-slate-950/80 p-4 text-center">
-            <div className="text-sm font-semibold text-white/90">{t?.("market.closed", "Market Closed") ?? "Market Closed"}</div>
-            <div className="mt-1 text-xs text-white/70">
-              {t?.("market.opensIn", "Opens in") ?? "Opens in"} {nextOpenInfo?.countdown ?? countdown}
+            <div className="text-sm font-semibold text-white/90">
+              {!marketOpen
+                ? tSafe(lang, "market.closed", "Market Closed")
+                : tSafe(lang, "intraday.analyzing", "Intraday Analyzing…")}
             </div>
-            {nextOpenInfo?.openAt ? (
-              <div className="mt-1 text-[11px] text-white/60">
-                {t?.("market.openAt", "Open") ?? "Open"}: {nextOpenInfo.openAtET} ET · {nextOpenInfo.openAt} {t?.("market.local", "local") ?? "local"}
-              </div>
-            ) : null}
+
+            {!marketOpen ? (
+              <>
+                <div className="mt-1 text-xs text-white/70">
+                  {tSafe(lang, "market.opensIn", "Opens in")} {nextOpenInfo?.countdown ?? countdown}
+                  <span className="ml-2 text-white/50">(09:30 ET)</span>
+                </div>
+                {nextOpenInfo?.openAt ? (
+                  <div className="mt-1 text-[11px] text-white/60">
+                    {tSafe(lang, "market.openAt", "Open")}: {nextOpenInfo.openAtET} ET · {nextOpenInfo.openAt} {(t?.("market.local", "local") ?? "local")}
+                  </div>
+                ) : null}
+                <div className="mt-2 text-[11px] text-white/55">
+                  {tSafe(lang, "market.noteDaily", "Daily view stays available off-hours.")}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="mt-1 text-xs text-white/70">
+                  {tSafe(lang, "intraday.waitFirst", "Session is open, waiting for first intraday snapshot…")}
+                </div>
+                <div className="mt-1 text-[11px] text-white/60">
+                  {tSafe(lang, "intraday.refresh", "Refresh timer")}: <span className="font-mono">{countdown}</span>
+                </div>
+              </>
+            )}
           </div>
         </div>
       ) : null}
+
 
       {view === "a1" ? (
   <div className="grid gap-3">
