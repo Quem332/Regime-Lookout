@@ -339,7 +339,40 @@ const zShortDaily = Number.isFinite(intraday?.zShort) ? intraday.zShort : Number
 
     const tags = buildReasoningTags({ V, corrAvg: corrAvgDaily, corrSurge: corrSurgeDaily, zShort: zShortDaily, probs, Cfinal });
 
-    const snapshot = {
+    
+    // Intraday scenario tracking: reuse daily factors but "y" tracks today's zShort so
+    // the scenario/probabilities can meaningfully differ intraday vs daily.
+    const dailyV = Array.isArray(latest?.daily?.V) ? latest.daily.V : [0, 0, 0, 0, 0, 0];
+    const vTrack = [...dailyV];
+    if (typeof zShortVal === "number" && Number.isFinite(zShortVal)) {
+      const zc = Math.max(-3, Math.min(3, zShortVal));
+      vTrack[1] = zc;
+    }
+    const { probs: probsTrack, passedKeys: passedKeysTrack } = computeProbabilitiesSpec(vTrack);
+    const intradayDataOk = !["MOCK", "STALE", "ERROR", "NONE"].includes(String(dataHealthLevel || "").toUpperCase());
+    const relTrack = computeReliabilityCSpec({
+      dataOk: intradayDataOk,
+      zShort: typeof zShortVal === "number" && Number.isFinite(zShortVal) ? zShortVal : 0,
+      corrAvg: typeof corrAvg === "number" && Number.isFinite(corrAvg) ? corrAvg : 0.5,
+      corrSurge: Boolean(i?.corrSurge),
+      eventWindowActive: Boolean(latest?.eventWindow?.active),
+    });
+    const CfinalTrack = relTrack?.Cfinal ?? 0;
+    const regime7Track = computeRegime7Spec(passedKeysTrack, CfinalTrack, vTrack);
+    const tagsTrack = buildReasoningTags({ t, V: vTrack, rel: relTrack, probs: probsTrack, isIntraday: true });
+    const scenarioPack = {
+      score: latest?.daily?.score ?? null,
+      Cfinal: CfinalTrack,
+      regime7: regime7Track,
+      topK: 1,
+      probs: probsTrack,
+      tags: tagsTrack,
+      V: vTrack,
+      meta: { source: "intradayTracking", inputsRaw: null },
+    };
+
+const snapshot = {
+      scenario: scenarioPack,
       // core outputs
       V,
       probs,
@@ -412,6 +445,7 @@ try {
       Boolean(i?.corrSurge) || (typeof zShortVal === "number" && Number.isFinite(zShortVal) && Math.abs(zShortVal) > 2.5);
 
     const snapshot = {
+      scenario: scenarioPack,
       zShort: typeof zShortVal === "number" ? zShortVal : null,
       zShortPct: i?.zShortPct ?? null,
       corrAvg: typeof corrAvg === "number" ? corrAvg : null,

@@ -101,6 +101,7 @@ export function PageMarket({ api, tab, setTab, t }) {
       {view === "b1" ? (
         <div className="grid gap-3">
           <Card title={t?.("b1.title", "Daily Scenarios") ?? "Daily Scenarios"} subtitle={t?.("b1.subtitle", "Distribution view (no single-call)") ?? "Distribution view (no single-call)"}>
+            <div className="text-xs text-muted-foreground mb-2">{`Shield ${viewModel?.Cfinal ?? '-'} • Regime ${viewModel?.regime7 ?? '-'}`}</div>
             <div className="space-y-2">
               {probList.length ? (
                 probList.map(([k, v]) => {

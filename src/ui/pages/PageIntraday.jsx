@@ -46,7 +46,41 @@ export function PageIntraday({ t, intraday, marketOpen, marketCountdown, state, 
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      
+      {scenario ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t.intraday?.scenarioTitle ?? "분봉 시나리오(추적)"}</CardTitle>
+            <CardDescription>
+              {(t.intraday?.scenarioDesc ??
+                "일봉 팩터를 유지하면서 오늘 장중(zShort)로 시나리오 확률을 '추적'합니다.") +
+                ` • Shield ${scenario.Cfinal} • Regime ${scenario.regime7}`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-2">
+              {Object.entries(scenario.probs || {})
+                .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))
+                .slice(0, 3)
+                .map(([k, v]) => (
+                  <div key={k} className="flex items-center justify-between text-sm">
+                    <span className="font-medium">{k}</span>
+                    <span>{Math.round((v ?? 0) * 100)}%</span>
+                  </div>
+                ))}
+              {Array.isArray(scenario.tags) && scenario.tags.length > 0 ? (
+                <div className="pt-2 text-sm text-muted-foreground">
+                  {scenario.tags.slice(0, 2).map((tg, idx) => (
+                    <div key={idx}>{tg?.label}</div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+<div className="grid grid-cols-2 gap-3">
         <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
           <div className="text-xs text-gray-400">{t.intraday.zTitle}</div>
           <div className="text-2xl font-extrabold mt-2">{fmt(zShort)}σ</div>

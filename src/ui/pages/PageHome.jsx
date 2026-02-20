@@ -26,6 +26,13 @@ export function PageHome({ api, tab, setTab, t, lang }) {
   const status = vm.raw.status;
   const asOf = vm.meta.asOf ?? "";
 
+  // Score gate (conservative): keep open while market is closed; lock briefly after open until intraday data is ready.
+  const marketOpen = Boolean(vm.raw.marketOpen);
+  const intradayHealth = String(vm.raw.intraday?.dataHealthLevel ?? "").toUpperCase();
+  const scoreLocked = marketOpen && ["MOCK", "STALE", "ERROR", "NONE"].includes(intradayHealth);
+  const lockReason = scoreLocked ? (t?.("lock.dataAnalyzing", "데이터 분석 중") ?? "데이터 분석 중") : null;
+  const countdown = vm.raw.timers?.countdown ?? null;
+
   // Two internal views:
   // A-1: score-centric summary (score+confidence+tags+probs)
   // A-2: breakdown (inputs/quadrant/intraday diagnostics)
