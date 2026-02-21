@@ -685,7 +685,7 @@ try {
   const [nowMs, setNowMs] = useState(Date.now());
   useStableInterval(() => setNowMs(Date.now()), 1000, true);
 
-  const statusComputed = useMemo(() => {
+    const statusComputed = useMemo(() => {
     const latest = latestRef.current;
     const meta = daily?.meta || latest?.meta || {};
 
@@ -694,99 +694,41 @@ try {
     const fetchedAtStr = meta?.fetchedAt || latest?.fetchedAt || null;
     const fetchedAtDate = fetchedAtStr ? toDateSafe(fetchedAtStr) : null;
 
-    const latencyMin =
-      (meta?.latencyMin ?? latest?.latencyMin) ??
-      (meta?.latencyMs ?? latest?.latencyMs ? Math.round(((meta?.latencyMs ?? latest?.latencyMs) / 60000) * 10) / 10 : null);
+    // Market hours + timers
+    const marketOpen = Boolean(latest?.status?.marketOpen ?? latest?.marketOpen ?? false);
+    const marketClock = latest?.status?.marketClock ?? latest?.marketClock ?? null;
 
-    const tonePack = latencyTone(latencyMin);
+    const nextUpdateInSec = num(latest?.timers?.nextUpdateInSec ?? latest?.status?.timers?.nextUpdateInSec ?? null, null);
+    const countdown = String(latest?.timers?.countdown ?? latest?.status?.timers?.countdown ?? "--:--");
 
-    const now = new Date(nowMs);
-    const marketClock = computeMarketClock(now);
+    // Data health
+    const h = latest?.dataHealth || latest?.status?.dataHealth || null;
 
-    const asOfETKey = asOfDate ? etDateKey(asOfDate) : null;
-    const nowETKey = etDateKey(now);
-    const dataIsToday = !!asOfETKey && asOfETKey === nowETKey;
+    const ageMin = (() => {
+      const ref = fetchedAtDate || asOfDate;
+      if (!ref) return null;
+      return Math.max(0, Math.round((Date.now() - ref.getTime()) / 60000));
+    })();
 
-    const scoreLocked =
-      marketClock.phase === "PREMARKET" || (marketClock.phase === "OPEN" && !dataIsToday);
+    // Score gating policy (kept conservative)
+    const scoreLocked = Boolean(h?.level && String(h.level).toUpperCase() === "BAD");
+    const scoreLockReason = scoreLocked ? "data_health_bad" : null;
 
-    const scoreLockReason =
-      marketClock.phase === "PREMARKET"
-        ? { kind: "PREMARKET", eta: formatHMS(marketClock.secondsToOpen) }
-        : marketClock.phase === "OPEN" && !dataIsToday
-          ? { kind: "OPEN_WARMUP", minutesSinceOpen: marketClock.minutesSinceOpen ?? null }
-          : null;
-    const marketOpen = isMarketOpenET(now);
-    const eventWindow = marketOpen ? isInEventWindow(now, calRef.current.events || [], 15) : { active: false, event: null, diffMs: null };
-    const next = computeNextHalfHour(now);
-    const secs = Math.max(0, Math.floor((next.getTime() - now.getTime()) / 1000));
-
-    const hh = String(Math.floor(secs / 3600)).padStart(2, "0");
-    const mm = String(Math.floor((secs % 3600) / 60)).padStart(2, "0");
-    const ss = String(secs % 60).padStart(2, "0");
-
-    const countdown = secs >= 3600 ? `${hh}:${mm}:${ss}` : `${mm}:${ss}`;
-
-    // top bar label priority:
-    // 1) fetchedAt (always reflects the *latest fetch attempt* on this device)
-    // 2) asOf (server/data timestamp)
-    // 3) latency bucket
-    const fetchedLabel = fetchedAtDate
-      ? `${String(fetchedAtDate.getHours()).padStart(2, "0")}:${String(fetchedAtDate.getMinutes()).padStart(2, "0")}`
-      : null;
-
-    const asOfLabel = asOfDate
-      ? `${String(asOfDate.getHours()).padStart(2, "0")}:${String(asOfDate.getMinutes()).padStart(2, "0")}`
-      : null;
-
-    const topLabel = fetchedLabel ? `SYNC ${fetchedLabel}` : asOfLabel ? `DATA ${asOfLabel}` : tonePack.label;
-
-    // Health badge: color-only (legacy thresholds)
-// - <=10m: green
-// - <=20m: yellow
-// - <=30m: red
-// - >30m or no reference: black
-    const h = healthRef.current || {};
-    const nowT = now.getTime();
-    const asOfT = asOfDate ? asOfDate.getTime() : null;
-    const refT = asOfT ?? (h?.lastOkAt ? new Date(h.lastOkAt).getTime() : null);
-    const ageMin = refT ? (nowT - refT) / (60 * 1000) : Infinity;
-    const hasNewerError =
-      h?.lastError &&
-      (!h?.lastOkAt ||
-        (h.lastErrorAt &&
-          new Date(h.lastErrorAt).getTime() >
-            new Date(h.lastOkAt).getTime()));
-
-    let healthLabel = "OK";
-    let healthTone = "good";
-
-    if (!Number.isFinite(ageMin)) {
-      healthLabel = hasNewerError ? "FETCH_FAIL" : "NO_DATA";
-      healthTone = "black";
-    } else if (ageMin <= 10) {
-      healthLabel = "OK";
-      healthTone = "good";
-    } else if (ageMin <= 20) {
-      healthLabel = "STALE";
-      healthTone = "warn";
-    } else if (ageMin <= 30) {
-      healthLabel = hasNewerError ? "FETCH_FAIL" : "STALE";
-      healthTone = "bad";
-    } else {
-      healthLabel = hasNewerError ? "FETCH_FAIL" : "STALE";
-      healthTone = "black";
-    }
-
-    // If a newer fetch error exists, do not show green/yellow.
-    if (hasNewerError && (healthTone === "good" || healthTone === "warn")) {
-      healthLabel = "FETCH_FAIL";
-      healthTone = ageMin > 30 ? "black" : "bad";
-    }
+    // Market tone label (best-effort)
+    let topLabel = "--";
+    let tone = "gray";
+    try {
+      const sc = daily?.score;
+      if (Number.isFinite(sc)) {
+        if (sc >= 67) { tone = "good"; topLabel = "CALM"; }
+        else if (sc >= 34) { tone = "warn"; topLabel = "WATCH"; }
+        else { tone = "bad"; topLabel = "RISK"; }
+      }
+    } catch {}
 
     const health = {
-      label: healthLabel,
-      tone: healthTone,
+      label: h?.level ?? null,
+      tone: h?.level && String(h.level).toUpperCase() === "BAD" ? "bad" : "gray",
       ageMin,
       lastOkAt: h?.lastOkAt ?? null,
       lastError: h?.lastError ?? null,
@@ -796,24 +738,24 @@ try {
 
     return {
       market: {
-        tone: tonePack.tone,
+        tone,
         label: topLabel,
-        latencyMin,
+        latencyMin: meta?.latencyMin ?? meta?.latencyMinutes ?? null,
         asOf: asOfStr,
         fetchedAt: fetchedAtStr,
       },
       health,
       timers: {
-        nextUpdateInSec: secs,
+        nextUpdateInSec,
         countdown,
         pollMs,
       },
       marketOpen,
-    marketClock,
-    scoreLocked,
-    scoreLockReason,
+      marketClock,
+      scoreLocked,
+      scoreLockReason,
       events: calRef.current.events || [],
-      eventWindow,
+      eventWindow: latest?.eventWindow ?? null,
     };
   }, [daily?.meta, nowMs, pollMs]);
 
