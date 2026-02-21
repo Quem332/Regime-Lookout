@@ -307,7 +307,6 @@ export function useMRIState() {
   const [intraday, setIntraday] = useState(null);
   const [status, setStatus] = useState(null);
   const latestRef = useRef(null); // last latest.json payload
-  const splitAvailRef = useRef(null); // null=unknown, false=disabled for session
   const calRef = useRef({ events: [], loaded: false });
   const healthRef = useRef({ lastOkAt: null, lastError: null, lastErrorAt: null, schema: null });
   const buildDailyFromFeatures = ({ featuresZ, meta }) => {
@@ -345,39 +344,21 @@ const zShortDaily = Number.isFinite(intraday?.zShort) ? intraday.zShort : Number
     const tags = buildReasoningTags({ V, corrAvg: corrAvgDaily, corrSurge: corrSurgeDaily, zShort: zShortDaily, probs, Cfinal });
 
     
-    // Intraday scenario tracking: reuse daily factors but "y" tracks today's zShort so
-    // the scenario/probabilities can meaningfully differ intraday vs daily.
-    const dailyV = Array.isArray(latest?.daily?.V) ? latest.daily.V : [0, 0, 0, 0, 0, 0];
-    const vTrack = [...dailyV];
-    if (typeof zShortVal === "number" && Number.isFinite(zShortVal)) {
-      const zc = Math.max(-3, Math.min(3, zShortVal));
-      vTrack[1] = zc;
-    }
-    const { probs: probsTrack, passedKeys: passedKeysTrack } = computeProbabilitiesSpec(vTrack);
-    const intradayDataOk = !["MOCK", "STALE", "ERROR", "NONE"].includes(String(dataHealthLevel || "").toUpperCase());
-    const relTrack = computeReliabilityCSpec({
-      dataOk: intradayDataOk,
-      zShort: typeof zShortVal === "number" && Number.isFinite(zShortVal) ? zShortVal : 0,
-      corrAvg: typeof corrAvg === "number" && Number.isFinite(corrAvg) ? corrAvg : 0.5,
-      corrSurge: Boolean(i?.corrSurge),
-      eventWindowActive: Boolean(latest?.eventWindow?.active),
-    });
-    const CfinalTrack = relTrack?.Cfinal ?? 0;
-    const regime7Track = computeRegime7Spec(passedKeysTrack, CfinalTrack, vTrack);
-    const tagsTrack = buildReasoningTags({ t, V: vTrack, rel: relTrack, probs: probsTrack, isIntraday: true });
+
+    // Scenario pack (daily) – used by UI verdict builders
     const scenarioPack = {
-      score: latest?.daily?.score ?? null,
-      Cfinal: CfinalTrack,
-      regime7: regime7Track,
-      topK: 1,
-      probs: probsTrack,
-      tags: tagsTrack,
-      V: vTrack,
-      meta: { source: "intradayTracking", inputsRaw: null },
+      score: scorePack?.score ?? null,
+      Cfinal,
+      regime7,
+      topK,
+      probs,
+      tags,
+      V,
+      meta: { source: meta?.source ?? "dailyFeatures", inputsRaw: meta?.inputsRaw ?? null },
     };
 
-const snapshot = {
-      scenario: i?.scenario ?? null,
+    const snapshot = {
+      scenario: scenarioPack,
       // core outputs
       V,
       probs,
@@ -450,7 +431,7 @@ try {
       Boolean(i?.corrSurge) || (typeof zShortVal === "number" && Number.isFinite(zShortVal) && Math.abs(zShortVal) > 2.5);
 
     const snapshot = {
-      scenario: i?.scenario ?? null,
+      scenario: scenarioPack,
       zShort: typeof zShortVal === "number" ? zShortVal : null,
       zShortPct: i?.zShortPct ?? null,
       corrAvg: typeof corrAvg === "number" ? corrAvg : null,
@@ -475,30 +456,12 @@ try {
     const bust = `?t=${Date.now()}`;
 
     // Prefer split files (daily + intraday). If not present, fall back to legacy single-file.
-// To avoid noisy 404 spam when only legacy latest.json exists, we disable split-fetching for the session
-// if BOTH split endpoints return HTTP 404 once.
-    let daily = null;
-    let intraday = null;
-
-    const shouldTrySplit = splitAvailRef.current !== false;
-    if (shouldTrySplit) {
-      const [dRes, iRes] = await Promise.all([
-        fetchJson(`${DAILY_URL}${bust}`, { timeoutMs: 15_000 }).then((data) => ({ data, err: null })).catch((err) => ({ data: null, err })),
-        fetchJson(`${INTRADAY_URL}${bust}`, { timeoutMs: 15_000 }).then((data) => ({ data, err: null })).catch((err) => ({ data: null, err })),
-      ]);
-      daily = dRes.data;
-      intraday = iRes.data;
-
-      const d404 = String(dRes.err?.message || "").includes("HTTP 404");
-      const i404 = String(iRes.err?.message || "").includes("HTTP 404");
-      if (!daily && !intraday && d404 && i404) {
-        splitAvailRef.current = false;
-        logger.info("net.split_disabled_for_session", { reason: "both_404" });
-      }
-    }
+    const [daily, intraday] = await Promise.all([
+      fetchJson(`${DAILY_URL}${bust}`, { timeoutMs: 15_000 }).catch(() => null),
+      fetchJson(`${INTRADAY_URL}${bust}`, { timeoutMs: 15_000 }).catch(() => null),
+    ]);
 
     const raw = daily || intraday
-
       ? {
           schemaVersion: daily?.schemaVersion || intraday?.schemaVersion || "2.3",
           asOf: daily?.asOf || intraday?.asOf || null,
