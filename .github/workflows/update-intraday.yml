@@ -26,7 +26,6 @@ jobs:
         with:
           python-version: '3.11'
 
-
       - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
@@ -42,14 +41,11 @@ jobs:
           from zoneinfo import ZoneInfo
           et = ZoneInfo("America/New_York")
           now = datetime.datetime.now(tz=et)
-
           if now.weekday() >= 5:
               raise SystemExit(2)
-
           mins = now.hour*60 + now.minute
           if mins < (9*60+30) or mins > (16*60):
               raise SystemExit(2)
-
           raise SystemExit(0)
           PY
 

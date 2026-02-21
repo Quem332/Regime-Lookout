@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useState } from "react";
 import { Card } from "../components/Card";
+import { Pill } from "../components/Pill";
 import { loadLookback, saveLookback } from "../../storage/localSettings";
 import { buildMriViewModel, tSafe } from "../render/mriPipeline";
 import FactorBars from "../components/FactorBars";
@@ -30,6 +31,19 @@ export function PageMarket({ api, tab, setTab, t }) {
   // If backend emits period aggregates later, attach them under mri.period.
   const [lookback, setLookback] = useState(() => loadLookback("252d"));
   const period = api?.mri?.period?.[lookback] || null;
+
+  // Period payload can be either the object itself or wrapped in { daily: ... } depending on pipeline version.
+  const periodDaily = period?.daily ?? period ?? null;
+  const periodTags = Array.isArray(periodDaily?.tags) ? periodDaily.tags : [];
+  const periodOneLine = useMemo(() => {
+    return buildOneLineVerdict({
+      score: Number.isFinite(periodDaily?.score) ? periodDaily.score : null,
+      Cfinal: Number.isFinite(periodDaily?.Cfinal) ? periodDaily.Cfinal : null,
+      regime7: periodDaily?.regime7 ?? null,
+      tags: periodDaily?.tags ?? null,
+      t,
+    });
+  }, [periodDaily?.score, periodDaily?.Cfinal, periodDaily?.regime7, periodDaily?.tags, t]);
   const viewModel = period || daily;
 
   const view = tab ?? "b1"; // b1 | b2
@@ -101,7 +115,6 @@ export function PageMarket({ api, tab, setTab, t }) {
       {view === "b1" ? (
         <div className="grid gap-3">
           <Card title={t?.("b1.title", "Daily Scenarios") ?? "Daily Scenarios"} subtitle={t?.("b1.subtitle", "Distribution view (no single-call)") ?? "Distribution view (no single-call)"}>
-            <div className="text-xs text-muted-foreground mb-2">{`Shield ${viewModel?.Cfinal ?? '-'} • Regime ${viewModel?.regime7 ?? '-'}`}</div>
             <div className="space-y-2">
               {probList.length ? (
                 probList.map(([k, v]) => {

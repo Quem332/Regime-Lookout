@@ -61,25 +61,14 @@ def _last_trading_day_et(now_et: datetime.datetime) -> str:
 
 
 def _download_daily(days_back: int = 420):
-    """Fetch daily adjusted close data.
-
-    Primary: yfinance (with retries, threads disabled for stability on CI)
-    Fallback: Stooq daily CSV (for US ETFs) to avoid total failure when Yahoo blocks CI.
-    If both fail, we fall back to the previously written daily_latest.json (if present)
-    and raise only if nothing exists.
-    """
     end = datetime.datetime.now(tz=ET)
     start = end - datetime.timedelta(days=days_back)
 
-    tickers = list(TICKERS.values())
-
-    # --- 1) Try yfinance (retry) ---
-    last_exc = None
-    df = None
-    for _try in range(3):
+    last_err = None
+    for attempt in range(3):
         try:
             df = yf.download(
-                tickers,
+                list(TICKERS.values()),
                 start=start.date().isoformat(),
                 end=(end.date() + datetime.timedelta(days=1)).isoformat(),
                 interval="1d",
@@ -88,74 +77,28 @@ def _download_daily(days_back: int = 420):
                 group_by="ticker",
                 threads=False,
             )
-            if df is not None and len(df) > 0:
-                break
-        except Exception as e:
-            last_exc = e
-            df = None
+            if df is None or len(df) == 0:
+                raise RuntimeError("empty yfinance response")
 
-    close = None
-    if df is not None and len(df) > 0:
-        close = pd.DataFrame(index=df.index)
-        for k, t in TICKERS.items():
-            try:
+            close = pd.DataFrame(index=df.index)
+            for k, t in TICKERS.items():
                 if hasattr(df.columns, "get_level_values") and t in df.columns.get_level_values(0):
                     close[k] = df[t]["Close"]
                 else:
-                    # Some yfinance versions return single-level columns
                     if "Close" in df.columns and k in df.columns:
                         close[k] = df[k]["Close"]
-            except Exception:
-                pass
-        close = close.dropna(how="all")
 
-    # --- 2) Fallback to Stooq if required cols missing or yfinance empty ---
-    def _stooq_symbol(sym: str) -> str:
-        # Stooq uses lower-case symbols; US equities/ETFs often have ".us"
-        s = sym.replace("^", "").lower()
-        if sym.startswith("^"):
-            return s  # indices sometimes exist as plain symbols
-        return f"{s}.us"
+            close = close.dropna(how="all")
+            if close is None or len(close) == 0:
+                raise RuntimeError("no close series built")
+            return close
+        except Exception as e:
+            last_err = e
+            import time as _time
+            _time.sleep(1.5 * (attempt + 1))
 
-    def _read_stooq_close(sym: str) -> pd.Series | None:
-        url = f"https://stooq.com/q/d/l/?s={_stooq_symbol(sym)}&i=d"
-        try:
-            d = pd.read_csv(url)
-            if d is None or len(d) == 0:
-                return None
-            if "Date" not in d.columns or "Close" not in d.columns:
-                return None
-            d["Date"] = pd.to_datetime(d["Date"], errors="coerce")
-            d = d.dropna(subset=["Date"]).sort_values("Date")
-            s = pd.Series(d["Close"].values, index=pd.DatetimeIndex(d["Date"]))
-            s = s.astype(float, errors="ignore")
-            return s
-        except Exception:
-            return None
-
-    req_syms = ["QQQM", "XLP", "VOO", "UUP", "GLD"]
-    need_fallback = close is None or any((c not in close.columns) for c in req_syms) or len(close) == 0
-    if need_fallback:
-        stooq_close = pd.DataFrame()
-        for k in req_syms:
-            ser = _read_stooq_close(TICKERS[k])
-            if ser is not None:
-                stooq_close[k] = ser
-        stooq_close = stooq_close.sort_index()
-        if close is None or len(close) == 0:
-            close = stooq_close
-        else:
-            # fill missing required columns from stooq
-            for k in req_syms:
-                if k not in close.columns and k in stooq_close.columns:
-                    close[k] = stooq_close[k]
-            close = close.sort_index()
-
-    if close is None or len(close) == 0:
-        # --- 3) Final fallback: keep last file if exists (avoid 404) ---
-        raise RuntimeError("No daily data fetched from yfinance/stooq")
-
-    return close
+    print("[WARN] yfinance daily download failed:", repr(last_err))
+    return None
 
 
 def _compute_featuresZ(close: pd.DataFrame, z_window: int) -> dict:
@@ -209,21 +152,13 @@ def main():
     out_path = os.path.join(repo_root, "public", "data", "daily_latest.json")
 
     now_et = datetime.datetime.now(tz=ET)
-    try:
-        close = _download_daily()
-        data_source = "yfinance"
-    except Exception as e:
-        # Try to keep previous output to avoid breaking UI/Actions
-        if os.path.exists(out_path):
-            with open(out_path, "r", encoding="utf-8") as f:
-                prev = json.load(f)
-            prev["dataHealth"] = {"level": "DEGRADED", "source": "cache", "msg": str(e)[:180]}
-            prev["fetchedAt"] = now_et.isoformat()
-            with open(out_path, "w", encoding="utf-8") as f:
-                json.dump(prev, f, ensure_ascii=False, indent=2)
-            print("[WARN] Daily fetch failed; kept previous daily_latest.json")
+    close = _download_daily()
+    if close is None or len(close) == 0:
+        prev_path = os.path.join('public','data','daily_latest.json')
+        if os.path.exists(prev_path):
+            print('[WARN] Keeping previous daily_latest.json (no new data)')
             return
-        raise
+        raise RuntimeError('No daily data fetched from yfinance')
 
     # Use the latest row timestamp as asOf (ET)
     asof_ts = close.index[-1].to_pydatetime().replace(tzinfo=ET)
@@ -245,7 +180,7 @@ def main():
         "lastTradingDay": _last_trading_day_et(now_et),
         "featuresZ": periods_payload["252D"]["featuresZ"],
         "periods": periods_payload,
-        "dataHealth": {"level": "OK", "source": data_source},
+        "dataHealth": {"level": "OK", "source": "yfinance"},
         "latencyMin": latency_min,
         "fetchedAt": now_et.isoformat(),
     }
