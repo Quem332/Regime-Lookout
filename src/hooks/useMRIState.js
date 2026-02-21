@@ -77,9 +77,12 @@ async function fetchJson(url, { timeoutMs = 12_000, retries = 2 } = {}) {
       }
 
       if (!res.ok) {
-        const msg = data?.detail ? String(data.detail) : `HTTP ${res.status}`;
-        throw new Error(`${msg} @ ${url}`);
-      }
+  // Treat missing split files as "not available yet" (common during rollout / gated intraday).
+  if (res.status === 404 || res.status === 410) return null;
+
+  const msg = data?.detail ? String(data.detail) : `HTTP ${res.status}`;
+  throw new Error(`${msg} @ ${url}`);
+}
 
       logger.debug("net.fetch_ok", {
         url,
@@ -307,6 +310,7 @@ export function useMRIState() {
   const [intraday, setIntraday] = useState(null);
   const [status, setStatus] = useState(null);
   const latestRef = useRef(null); // last latest.json payload
+  const dailyScenarioRef = useRef(null); // last daily scenario pack for intraday reuse
   const calRef = useRef({ events: [], loaded: false });
   const healthRef = useRef({ lastOkAt: null, lastError: null, lastErrorAt: null, schema: null });
   const buildDailyFromFeatures = ({ featuresZ, meta }) => {
@@ -343,40 +347,24 @@ const zShortDaily = Number.isFinite(intraday?.zShort) ? intraday.zShort : Number
 
     const tags = buildReasoningTags({ V, corrAvg: corrAvgDaily, corrSurge: corrSurgeDaily, zShort: zShortDaily, probs, Cfinal });
 
-    
-    // Intraday scenario tracking: reuse daily factors but "y" tracks today's zShort so
-    // the scenario/probabilities can meaningfully differ intraday vs daily.
-    const dailyV = Array.isArray(latest?.daily?.V) ? latest.daily.V : [0, 0, 0, 0, 0, 0];
-    const vTrack = [...dailyV];
-    if (typeof zShortVal === "number" && Number.isFinite(zShortVal)) {
-      const zc = Math.max(-3, Math.min(3, zShortVal));
-      vTrack[1] = zc;
-    }
-    const { probs: probsTrack, passedKeys: passedKeysTrack } = computeProbabilitiesSpec(vTrack);
-    const intradayDataOk = !["MOCK", "STALE", "ERROR", "NONE"].includes(String(dataHealthLevel || "").toUpperCase());
-    const relTrack = computeReliabilityCSpec({
-      dataOk: intradayDataOk,
-      zShort: typeof zShortVal === "number" && Number.isFinite(zShortVal) ? zShortVal : 0,
-      corrAvg: typeof corrAvg === "number" && Number.isFinite(corrAvg) ? corrAvg : 0.5,
-      corrSurge: Boolean(i?.corrSurge),
-      eventWindowActive: Boolean(latest?.eventWindow?.active),
-    });
-    const CfinalTrack = relTrack?.Cfinal ?? 0;
-    const regime7Track = computeRegime7Spec(passedKeysTrack, CfinalTrack, vTrack);
-    const tagsTrack = buildReasoningTags({ t, V: vTrack, rel: relTrack, probs: probsTrack, isIntraday: true });
     const scenarioPack = {
-      score: latest?.daily?.score ?? null,
-      Cfinal: CfinalTrack,
-      regime7: regime7Track,
-      topK: 1,
-      probs: probsTrack,
-      tags: tagsTrack,
-      V: vTrack,
-      meta: { source: "intradayTracking", inputsRaw: null },
+      score: scorePack.score,
+      Cfinal,
+      regime7,
+      topK,
+      probs,
+      tags,
+      V,
+      meta: {
+        source: meta?.source ?? null,
+        inputsRaw: meta?.inputsRaw ?? null,
+        dataHealthLevel: meta?.dataHealthLevel ?? meta?.dataHealth?.level ?? null,
+      },
     };
+    dailyScenarioRef.current = scenarioPack;
 
-const snapshot = {
-      scenario,
+    const snapshot = {
+      scenario: dailyScenarioRef.current,
       // core outputs
       V,
       probs,
@@ -448,21 +436,8 @@ try {
     const alert =
       Boolean(i?.corrSurge) || (typeof zShortVal === "number" && Number.isFinite(zShortVal) && Math.abs(zShortVal) > 2.5);
 
-    const scenario = latest?.daily
-      ? {
-          score: latest.daily?.score ?? null,
-          Cfinal: latest.daily?.Cfinal ?? null,
-          regime7: latest.daily?.regime7 ?? null,
-          topK: latest.daily?.topK ?? null,
-          probs: latest.daily?.probs ?? null,
-          tags: latest.daily?.tags ?? null,
-          V: latest.daily?.V ?? latest.daily?.vec ?? latest.daily?.featuresZ ?? null,
-          meta: { source: "dailyLatest", inputsRaw: null },
-        }
-      : null;
-
     const snapshot = {
-      scenario,
+      scenario: dailyScenarioRef.current,
       zShort: typeof zShortVal === "number" ? zShortVal : null,
       zShortPct: i?.zShortPct ?? null,
       corrAvg: typeof corrAvg === "number" ? corrAvg : null,
@@ -488,32 +463,44 @@ try {
 
     // Prefer split files (daily + intraday). If not present, fall back to legacy single-file.
     const [daily, intraday] = await Promise.all([
-      fetchJson(`${DAILY_URL}${bust}`, { timeoutMs: 15_000 }).catch(() => null),
-      fetchJson(`${INTRADAY_URL}${bust}`, { timeoutMs: 15_000 }).catch(() => null),
-    ]);
+  fetchJson(`${DAILY_URL}${bust}`, { timeoutMs: 15_000 }).catch(() => null),
+  fetchJson(`${INTRADAY_URL}${bust}`, { timeoutMs: 15_000 }).catch(() => null),
+]);
 
-    const raw = daily || intraday
-      ? {
-          schemaVersion: daily?.schemaVersion || intraday?.schemaVersion || "2.3",
-          asOf: daily?.asOf || intraday?.asOf || null,
-          lastTradingDay: daily?.lastTradingDay || null,
-          // Daily inputs
-          featuresZ: daily?.featuresZ || null,
-          periods: daily?.periods || null,
-          // Intraday inputs
-          intraday: intraday?.intraday || null,
-          // Meta
-          dataHealth: daily?.dataHealth || intraday?.dataHealth || null,
-          latencyMin:
-            typeof intraday?.latencyMin === "number"
-              ? intraday.latencyMin
-              : typeof daily?.latencyMin === "number"
-                ? daily.latencyMin
+// If only one split file exists, opportunistically fill the missing side from legacy latest.json.
+let legacy = null;
+if ((daily && !intraday) || (!daily && intraday)) {
+  legacy = await fetchJson(`${LEGACY_LATEST_URL}${bust}`, { timeoutMs: 15_000 }).catch(() => null);
+}
+
+const raw =
+  daily || intraday
+    ? {
+        schemaVersion: daily?.schemaVersion || intraday?.schemaVersion || legacy?.schemaVersion || "2.3",
+        asOf: daily?.asOf || intraday?.asOf || legacy?.asOf || null,
+        lastTradingDay: daily?.lastTradingDay || legacy?.lastTradingDay || null,
+
+        // Daily inputs (prefer daily split, then legacy)
+        featuresZ: daily?.featuresZ || legacy?.featuresZ || null,
+        periods: daily?.periods || legacy?.periods || null,
+
+        // Intraday inputs (prefer intraday split, then legacy)
+        intraday: intraday?.intraday || legacy?.intraday || null,
+
+        // Meta
+        dataHealth: daily?.dataHealth || intraday?.dataHealth || legacy?.dataHealth || null,
+        latencyMin:
+          typeof intraday?.latencyMin === "number"
+            ? intraday.latencyMin
+            : typeof daily?.latencyMin === "number"
+              ? daily.latencyMin
+              : typeof legacy?.latencyMin === "number"
+                ? legacy.latencyMin
                 : null,
-          fetchedAt: intraday?.fetchedAt || daily?.fetchedAt || null,
-          _sources: { daily: !!daily, intraday: !!intraday },
-        }
-      : await fetchJson(`${LEGACY_LATEST_URL}${bust}`, { timeoutMs: 15_000 });
+        fetchedAt: intraday?.fetchedAt || daily?.fetchedAt || legacy?.fetchedAt || null,
+        _sources: { daily: !!daily, intraday: !!intraday, legacy: !!legacy },
+      }
+    : await fetchJson(`${LEGACY_LATEST_URL}${bust}`, { timeoutMs: 15_000 });
 
     const norm = normalizeLatest(raw);
     if (!norm.ok) {

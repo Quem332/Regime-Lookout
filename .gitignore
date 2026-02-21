@@ -9,3 +9,7 @@ backend/__pycache__/
 
 # OS
 .DS_Store
+
+# Build output (Pages is deployed from Actions artifact)
+dist/
+
