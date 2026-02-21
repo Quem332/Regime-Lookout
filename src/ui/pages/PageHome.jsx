@@ -50,6 +50,9 @@ export function PageHome({ api, tab, setTab, t, lang }) {
   const isKo = String(lang || "").toLowerCase().startsWith("ko");
   const L = (ko, en) => (isKo ? ko : en);
 
+  const W_PROB = L("확률", "Probability");
+  const W_CONF = L("신뢰도", "Confidence");
+
   const vm = useMemo(() => buildMriViewModel({ api, t }), [api, t]);
 
   const daily = vm.raw?.daily ?? vm.daily ?? null;
@@ -215,7 +218,7 @@ export function PageHome({ api, tab, setTab, t, lang }) {
                       <div className="flex items-center justify-between text-xs text-white/80">
                         <span className="truncate">{label}</span>
                         <span className="tabular-nums">
-                          {pct}%{Number.isFinite(cShown) ? ` · C${Math.round(cShown)}` : ""}
+                          {`${W_PROB} ${pct}%`}{Number.isFinite(cShown) ? ` · ${W_CONF} ${Math.round(cShown)}` : ""}
                         </span>
                       </div>
                       <div className="h-2 rounded-full bg-white/10 overflow-hidden">
