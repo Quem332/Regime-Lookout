@@ -48,7 +48,6 @@ export function PageMarket({ api, tab, setTab, t }) {
     });
   }, [periodDaily?.Cfinal, periodDaily?.regime7, periodDaily?.probs, periodDaily?.tags, lookback, t]);
 
-  }, [periodDaily?.score, periodDaily?.Cfinal, periodDaily?.regime7, periodDaily?.tags, t]);
   const viewModel = periodDaily || daily;
 
   const view = tab ?? "b1"; // b1 | b2

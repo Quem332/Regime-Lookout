@@ -71,7 +71,7 @@ def main():
     interval = "15m"
     period = "5d"
 
-        df = None
+    df = None
     last_exc = None
     for _try in range(3):
         try:
