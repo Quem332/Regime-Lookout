@@ -10,6 +10,9 @@ function fmt(v, digits = 2) {
 }
 
 export function PageIntraday({ t, lang, api, state, topbarH = 56 }) {
+  const isKo = String(lang || "").toLowerCase().startsWith("ko");
+  const L = (ko, en) => (isKo ? ko : en);
+
   const intra = state?.intraday ?? state?.mri?.intraday ?? api?.mri?.intraday ?? null;
   const status = state?.status ?? state?.mri?.status ?? api?.mri?.status ?? null;
 
@@ -32,7 +35,7 @@ export function PageIntraday({ t, lang, api, state, topbarH = 56 }) {
   return (
     <div className="px-4 pb-6 min-h-[calc(100dvh-4rem)]" style={{ paddingTop: Math.max(8, (topbarH || 56) - 48) }}>
       {showLock ? (
-        <Card title={tSafe(lang, "market.closed", "Market Closed")} subtitle={tSafe(lang, "a2.lockSub", "Intraday is disabled off-hours")}>
+        <Card title={tSafe(lang, "market.closed", L("장 마감", "Market Closed"))} subtitle={tSafe(lang, "a2.lockSub", L("장 외 시간에는 인트라데이 신호가 비활성화됩니다.", "Intraday is disabled off-hours"))}>
           <div className="text-xs text-white/70">
             {tSafe(lang, "market.opensIn", "Opens in")} <span className="font-mono">{countdown}</span> <span className="text-white/50">(09:30 ET)</span>
           </div>

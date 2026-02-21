@@ -10,6 +10,84 @@ import { normalizeLatest } from "../core/normalize.latest";
 import { upperTriangleAvgCorrMock } from "../core/mock";
 import { logger } from "../core/logger";
 import { idbGet, idbSet } from "../storage/idb";
+// -----------------------------
+// Helpers (module-level)
+// -----------------------------
+
+function num(v, d = 0) {
+  const x = Number(v);
+  return Number.isFinite(x) ? x : d;
+}
+
+/**
+ * Build a "daily" pack from featuresZ using the spec functions.
+ * This is used both for the 252D (today) and for period packs (20D/60D/252D).
+ * It intentionally does not depend on backend-provided "daily" fields so the UI stays robust
+ * when daily_latest.json is missing or has older schema.
+ */
+function buildDailyFromFeaturesZ(featuresZ, meta = {}, intraday = null) {
+  if (!featuresZ || typeof featuresZ !== "object") return null;
+
+  const V = [featuresZ.x, featuresZ.y, featuresZ.rates, featuresZ.usd, featuresZ.vix, featuresZ.goldFear].map((v) => num(v, 0));
+
+  const latencyMin = meta?.latencyMin ?? meta?.latencyMinutes ?? meta?.latency ?? null;
+  const healthLevel = meta?.dataHealth?.level ?? meta?.dataHealthLevel ?? null;
+
+  const dataOk = Number.isFinite(latencyMin) ? latencyMin <= 30 : true;
+  const dataOkFinal = dataOk && !["BAD", "DOWN", "ERROR"].includes(String(healthLevel ?? "").toUpperCase());
+
+  const corrAvgDaily = intraday?.corrAvg ?? meta?.intraday?.corrAvg ?? upperTriangleAvgCorrMock();
+  const corrSurgeDaily = Boolean(intraday?.corrSurge ?? meta?.intraday?.corrSurge ?? false);
+  const zShortDaily = Number.isFinite(intraday?.zShort)
+    ? intraday.zShort
+    : Number.isFinite(meta?.intraday?.zShort)
+      ? meta.intraday.zShort
+      : 0;
+
+  const { probs, passedKeys } = computeProbabilitiesSpec(V);
+  const rel = computeReliabilityCSpec({ dataOk: dataOkFinal, corrAvg: corrAvgDaily, corrSurge: corrSurgeDaily, zShort: zShortDaily, V, probs });
+  const Cfinal = rel.C;
+  const regime7 = computeRegime7Spec({ passedKeys, Cfinal, V });
+  const scorePack = computeTodayScoreSpec({ probs, Cfinal, corrAvg: corrAvgDaily, V, regime7 });
+
+  const topEntry = Object.entries(probs).sort((a, b) => b[1] - a[1])[0];
+  const topK = topEntry ? Number(topEntry[0]) : null;
+
+  const tags = buildReasoningTags({ V, corrAvg: corrAvgDaily, corrSurge: corrSurgeDaily, zShort: zShortDaily, probs, Cfinal });
+
+  return {
+    score: scorePack.score,
+    Cfinal,
+    regime7,
+    topK,
+    probs,
+    tags,
+    V,
+    meta: {
+      source: meta?.source ?? null,
+      inputsRaw: meta?.inputsRaw ?? null,
+      dataHealthLevel: meta?.dataHealthLevel ?? meta?.dataHealth?.level ?? null,
+    },
+  };
+}
+
+function buildPeriodMapFromLatest(latest, dailySnapshot, intraday) {
+  const periods = latest?.periods && typeof latest.periods === "object" ? latest.periods : null;
+  if (!periods) return null;
+
+  const out = {};
+  for (const [k, obj] of Object.entries(periods)) {
+    const fz = obj?.featuresZ;
+    if (!fz || typeof fz !== "object") continue;
+    const label = String(k).toLowerCase();
+    const daily = buildDailyFromFeaturesZ(fz, { ...(latest || {}), ...(latest?.meta || {}), forceAsOf: latest?.asOf ?? null }, intraday);
+    if (daily) out[label] = { daily };
+  }
+
+  if (!out["252d"] && dailySnapshot?.daily) out["252d"] = { daily: dailySnapshot.daily };
+  return Object.keys(out).length ? out : null;
+}
+
 
 /**
  * Mobile-only data source:
@@ -312,53 +390,8 @@ export function useMRIState() {
   const calRef = useRef({ events: [], loaded: false });
   const healthRef = useRef({ lastOkAt: null, lastError: null, lastErrorAt: null, schema: null });
   const buildDailyFromFeatures = ({ featuresZ, meta }) => {
-    const started = performance.now();
-    const V = [featuresZ.x, featuresZ.y, featuresZ.rates, featuresZ.usd, featuresZ.vix, featuresZ.goldFear].map((v) => num(v, 0));
-
-    const isAllZeroV = V.every((v) => v === 0);
-    if (isAllZeroV && daily && daily?.meta?.dataHealthLevel !== "MOCK") {
-      return;
-    }
-
-    const latencyMin = meta?.latencyMin ?? meta?.latencyMinutes ?? meta?.latency ?? null;
-const healthLevel = meta?.dataHealth?.level ?? meta?.dataHealthLevel ?? null;
-
-// Data considered OK if not stale and not explicitly marked bad.
-const dataOk =
-  Number.isFinite(latencyMin) ? latencyMin <= 30 : true;
-const dataOkFinal =
-  dataOk && !["BAD", "DOWN", "ERROR"].includes(String(healthLevel ?? "").toUpperCase());
-    const corrAvgDaily = intraday?.corrAvg ?? meta?.intraday?.corrAvg ?? upperTriangleAvgCorrMock();
-
-const corrSurgeDaily = Boolean(intraday?.corrSurge ?? meta?.intraday?.corrSurge ?? false);
-const zShortDaily = Number.isFinite(intraday?.zShort) ? intraday.zShort : Number.isFinite(meta?.intraday?.zShort) ? meta.intraday.zShort : 0;
-
-
-    const { probs, passedKeys } = computeProbabilitiesSpec(V);
-    const rel = computeReliabilityCSpec({ dataOk: dataOkFinal, corrAvg: corrAvgDaily, corrSurge: corrSurgeDaily, zShort: zShortDaily, V, probs });
-    const Cfinal = rel.C;
-    const regime7 = computeRegime7Spec({ passedKeys, Cfinal, V });
-    const scorePack = computeTodayScoreSpec({ probs, Cfinal, corrAvg: corrAvgDaily, V, regime7 });
-
-    const topEntry = Object.entries(probs).sort((a, b) => b[1] - a[1])[0];
-    const topK = topEntry ? Number(topEntry[0]) : null;
-
-    const tags = buildReasoningTags({ V, corrAvg: corrAvgDaily, corrSurge: corrSurgeDaily, zShort: zShortDaily, probs, Cfinal });
-
-    const scenarioPack = {
-      score: scorePack.score,
-      Cfinal,
-      regime7,
-      topK,
-      probs,
-      tags,
-      V,
-      meta: {
-        source: meta?.source ?? null,
-        inputsRaw: meta?.inputsRaw ?? null,
-        dataHealthLevel: meta?.dataHealthLevel ?? meta?.dataHealth?.level ?? null,
-      },
-    };
+    return buildDailyFromFeaturesZ(featuresZ, meta, intraday);
+  };
     dailyScenarioRef.current = scenarioPack;
 
     const snapshot = {

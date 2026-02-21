@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import { useMRIState } from "../hooks/useMRIState";
 import { useH3DragNav } from "../hooks/useH3DragNav";
@@ -61,6 +61,21 @@ export function MRIMarketDashboard() {
 
   // Swipe-only loop navigation. (No tap-to-cycle.)
   const nav = useH3DragNav({ initialIndex: 0, thresholdPx: 110, tapToCycle: false, edgeSwipePx: 24 });
+
+// Auto default page:
+// - Off-hours -> start on MARKET (B pages), since HOME intraday is mostly locked/empty.
+// - During market hours -> keep HOME.
+const didAutoNavRef = useRef(false);
+useEffect(() => {
+  if (didAutoNavRef.current) return;
+  const isOpen = Boolean(status?.marketOpen);
+  const dailyReady = Boolean(mri?.daily?.asOf || mri?.daily?.score != null);
+  if (!dailyReady) return;
+  if (!isOpen) {
+    nav.goTo?.(1);
+  }
+  didAutoNavRef.current = true;
+}, [status?.marketOpen, mri?.daily?.asOf, mri?.daily?.score, nav]);
 
   const title = nav.index === 0 ? (tFn("nav.home","HOME")) : nav.index === 1 ? (tFn("nav.market","MARKET")) : (tFn("nav.hub","HUB"));
   const subtitle =

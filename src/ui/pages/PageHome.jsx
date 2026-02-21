@@ -25,6 +25,9 @@ function isTapLike(start, end, maxDist = 10, maxMs = 320) {
 }
 
 export function PageHome({ api, tab, setTab, t, lang }) {
+  const isKo = String(lang || "").toLowerCase().startsWith("ko");
+  const L = (ko, en) => (isKo ? ko : en);
+
   const vm = useMemo(() => buildMriViewModel({ api, t }), [api, t]);
 
   const daily = vm.raw?.daily ?? null;
@@ -75,8 +78,15 @@ export function PageHome({ api, tab, setTab, t, lang }) {
   const probs = daily?.probs && typeof daily.probs === "object" ? daily.probs : {};
   const probList = useMemo(() => {
     return Object.entries(probs)
-      .filter(([, v]) => typeof v === "number" && Number.isFinite(v))
-      .sort((a, b) => b[1] - a[1])
+      .filter(([, v]) => {
+        const pp = probParts(v);
+        return typeof pp.p === "number" && Number.isFinite(pp.p);
+      })
+      .sort((a, b) => {
+        const pa = probParts(a[1]).p || 0;
+        const pb = probParts(b[1]).p || 0;
+        return pb - pa;
+      })
       .slice(0, 6);
   }, [daily?.probs]);
 
@@ -116,6 +126,27 @@ export function PageHome({ api, tab, setTab, t, lang }) {
 
   // Quadrant dot
   const clamp01 = (v) => Math.max(0, Math.min(1, v));
+
+function probParts(v) {
+  // Supports:
+  // - number: p
+  // - [p, c]
+  // - { p, c } or { prob, c } or { p, C } etc.
+  try {
+    if (typeof v === "number" && Number.isFinite(v)) return { p: v, c: null };
+    if (Array.isArray(v)) {
+      const p = typeof v[0] === "number" ? v[0] : null;
+      const c = typeof v[1] === "number" ? v[1] : null;
+      return { p, c };
+    }
+    if (v && typeof v === "object") {
+      const p = typeof v.p === "number" ? v.p : typeof v.prob === "number" ? v.prob : typeof v.value === "number" ? v.value : null;
+      const c = typeof v.c === "number" ? v.c : typeof v.C === "number" ? v.C : typeof v.conf === "number" ? v.conf : typeof v.confidence === "number" ? v.confidence : null;
+      return { p, c };
+    }
+  } catch {}
+  return { p: null, c: null };
+}
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const dotPos = useMemo(() => {
     const xx = x == null ? 0 : clamp(Number(x), -3, 3);
@@ -139,13 +170,6 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     Boolean(intraday?.meta?.fetchedAt) ||
     Boolean(status?.intraday?.prices) ||
     Boolean(status?.intraday?.meta?.asOf);
-
-  // Overlay logic: only blocks A-2 (intraday view).
-  const showOverlay = view === "a2" && (!marketOpen || (marketOpen && !intradayReady));
-
-  const nextOpenInfo = useMemo(() => {
-    if (marketOpen) return null;
-    const m = String(countdown || "").match(/^(\d+):(\d{2})$/);
     if (!m) return { countdown: countdown || "--:--", openAt: null, openAtET: null };
     const hh = Number(m[1]);
     const mm = Number(m[2]);
@@ -179,39 +203,10 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       onPointerUp={onPointerUp}
       style={{ touchAction: "pan-y" }}
     >
-      {/* Toggle pills (optional; swipe/tap also toggles) */}
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className={`px-3 py-1.5 rounded-full text-xs border ${
-              view === "a1"
-                ? "bg-white/10 border-white/20 text-white"
-                : "bg-transparent border-white/10 text-white/70"
-            }`}
-            onClick={() => setTab?.("a1")}
-          >
-            {tSafe(lang, "home.tabDaily", "Daily")}
-          </button>
-          <button
-            type="button"
-            className={`px-3 py-1.5 rounded-full text-xs border ${
-              view === "a2"
-                ? "bg-white/10 border-white/20 text-white"
-                : "bg-transparent border-white/10 text-white/70"
-            }`}
-            onClick={() => setTab?.("a2")}
-          >
-            {tSafe(lang, "home.tabIntraday", "Intraday")}
-          </button>
-        </div>
-        <div className="text-[11px] text-white/50">
-          {tSafe(lang, "home.swipeHint", "Swipe ←/→")}
-        </div>
-      </div>
+</div>
 
       {/* Overlay: blocks only intraday view */}
-      {showOverlay ? (
+      {false ? (
         <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40" />
           <div className="relative mx-6 w-full max-w-sm rounded-2xl border border-white/15 bg-slate-950/80 p-4 text-center">
@@ -254,8 +249,8 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       {view === "a1" ? (
         <div className="grid gap-3">
           <Card
-            title={t?.("a1.title", "Today") ?? "Today"}
-            subtitle={t?.("a1.subtitle", "Risk-adjusted interpretation") ?? "Risk-adjusted interpretation"}
+            title={tSafe(lang, "a1.title", L("오늘", "Today"))}
+            subtitle={tSafe(lang, "a1.subtitle", L("위험조정 해석", "Risk-adjusted interpretation"))}
           >
             <div className="flex items-end justify-between gap-3">
               <div className="flex items-end gap-3">
@@ -265,7 +260,7 @@ export function PageHome({ api, tab, setTab, t, lang }) {
                 <div className="pb-1">
                   <div className="text-sm font-semibold text-white/90">{scoreLabel}</div>
                   <div className="text-xs text-white/70">
-                    🛡 {t?.("score.confidence", "Confidence") ?? "Confidence"} {Cfinal == null ? "--" : String(Math.round(Cfinal))}
+                    🛡 {tSafe(lang, "score.confidence", L("신뢰도", "Confidence"))} {Cfinal == null ? "--" : String(Math.round(Cfinal))}
                     {daily?.rel?.capped ? ` (${t?.("score.capped", "Capped") ?? "Capped"})` : ""}
                   </div>
                 </div>
@@ -273,7 +268,7 @@ export function PageHome({ api, tab, setTab, t, lang }) {
 
               <div className="pb-1 text-right">
                 <div className="text-xs text-white/70">
-                  {t?.("score.regime", "Regime") ?? "Regime"} {String(regime7)}
+                  {tSafe(lang, "score.regime", L("레짐", "Regime"))} {String(regime7)}
                 </div>
                 <div className="text-xs text-white/60">{asOf || "--"}</div>
               </div>
@@ -302,8 +297,8 @@ export function PageHome({ api, tab, setTab, t, lang }) {
           </Card>
 
           <Card
-            title={t?.("ui.reasoningTags", "Reasoning Tags") ?? "Reasoning Tags"}
-            subtitle={t?.("tags.subtitle", "Key drivers") ?? "Key drivers"}
+            title={tSafe(lang, "ui.reasoningTags", L("근거 태그", "Reasoning Tags"))}
+            subtitle={tSafe(lang, "tags.subtitle", L("주요 요인", "Key drivers"))}
           >
             <div className="flex flex-wrap gap-2">
               {Array.isArray(scoreCopy?.reasonTags) && scoreCopy.reasonTags.length ? (
@@ -323,19 +318,21 @@ export function PageHome({ api, tab, setTab, t, lang }) {
           </Card>
 
           <Card
-            title={t?.("ui.probabilities", "Scenario Probabilities") ?? "Scenario Probabilities"}
-            subtitle={t?.("daily.topScenario", "Probability distribution") ?? "Probability distribution"}
+            title={tSafe(lang, "ui.probabilities", L("시나리오 확률", "Scenario Probabilities"))}
+            subtitle={tSafe(lang, "daily.topScenario", L("확률 분포", "Probability distribution"))}
           >
             <div className="space-y-2">
               {probList.length ? (
                 probList.map(([k, v]) => {
                   const label = t?.(`scenarios.${k}`, `S${k}`) ?? `S${k}`;
-                  const pct = Math.round(v * 100);
+                  const pp = probParts(v);
+                  const pct = Math.round((pp.p ?? 0) * 100);
+                  const ci = Number.isFinite(pp.c) ? pp.c : Cfinal;
                   return (
                     <div key={k} className="space-y-1">
                       <div className="flex items-center justify-between text-xs text-white/80">
                         <span className="truncate">{label}</span>
-                        <span className="tabular-nums">{pct}%</span>
+                        <span className="tabular-nums">{pct}% {Number.isFinite(ci) ? `· C${Math.round(ci)}` : ""}</span>
                       </div>
                       <div className="h-2 rounded-full bg-white/10 overflow-hidden">
                         <div className="h-full rounded-full bg-white/30" style={{ width: `${pct}%` }} />

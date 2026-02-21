@@ -6,6 +6,44 @@ import { buildMriViewModel, tSafe } from "../render/mriPipeline";
 import { buildPeriodCopy } from "../../core/verdict";
 import FactorBars from "../components/FactorBars";
 
+function probParts(v) {
+  // Supports:
+  // - number: p
+  // - [p, c]
+  // - { p, c } or { prob, c } or { p, C } etc.
+  try {
+    if (typeof v === "number" && Number.isFinite(v)) return { p: v, c: null };
+    if (Array.isArray(v)) {
+      const p = typeof v[0] === "number" ? v[0] : null;
+      const c = typeof v[1] === "number" ? v[1] : null;
+      return { p, c };
+    }
+    if (v && typeof v === "object") {
+      const p =
+        typeof v.p === "number"
+          ? v.p
+          : typeof v.prob === "number"
+            ? v.prob
+            : typeof v.value === "number"
+              ? v.value
+              : null;
+      const c =
+        typeof v.c === "number"
+          ? v.c
+          : typeof v.C === "number"
+            ? v.C
+            : typeof v.conf === "number"
+              ? v.conf
+              : typeof v.confidence === "number"
+                ? v.confidence
+                : null;
+      return { p, c };
+    }
+  } catch {}
+  return { p: null, c: null };
+}
+
+
 function isInteractiveTarget(el) {
   try {
     return Boolean(el?.closest?.("button, a, input, textarea, select, [role='button'], [data-stop-toggle='1']"));
@@ -48,6 +86,7 @@ export function PageMarket({ api, tab, setTab, t }) {
     });
   }, [periodDaily?.Cfinal, periodDaily?.regime7, periodDaily?.probs, periodDaily?.tags, lookback, t]);
 
+  }, [periodDaily?.score, periodDaily?.Cfinal, periodDaily?.regime7, periodDaily?.tags, t]);
   const viewModel = periodDaily || daily;
 
   const view = tab ?? "b1"; // b1 | b2
@@ -70,8 +109,15 @@ export function PageMarket({ api, tab, setTab, t }) {
   const probs = viewModel?.probs && typeof viewModel.probs === "object" ? viewModel.probs : {};
   const probList = useMemo(() => {
     return Object.entries(probs)
-      .filter(([, v]) => typeof v === "number" && Number.isFinite(v))
-      .sort((a, b) => b[1] - a[1])
+      .filter(([, v]) => {
+            const pp = probParts(v);
+            return typeof pp.p === "number" && Number.isFinite(pp.p);
+          })
+      .sort((a, b) => {
+            const pa = probParts(a[1]).p || 0;
+            const pb = probParts(b[1]).p || 0;
+            return pb - pa;
+          })
       .slice(0, 6);
   }, [viewModel?.probs]);
 
@@ -118,7 +164,7 @@ export function PageMarket({ api, tab, setTab, t }) {
       </div>
       {view === "b1" ? (
         <div className="grid gap-3">
-          <Card title={t?.("b1.title", "Period Interpretation") ?? "Period Interpretation"} subtitle={t?.("b1.subtitle", "Structure + distribution (no score)") ?? "Structure + distribution (no score)"}>
+          <Card title={tSafe(lang, "b1.title", L("기간 해석", "Period Interpretation"))} subtitle={tSafe(lang, "b1.subtitle", L("구조 + 분포 (점수 없음)", "Structure + distribution (no score)"))}>
             <div className="text-sm text-white/85 leading-snug">
   {periodCopy?.summary ?? "--"}
 </div>
@@ -139,12 +185,14 @@ export function PageMarket({ api, tab, setTab, t }) {
               {probList.length ? (
                 probList.map(([k, v]) => {
                   const label = t?.(`scenarios.${k}`, `S${k}`) ?? `S${k}`;
-                  const pct = Math.round(v * 100);
+                  const pp = probParts(v);
+                        const pct = Math.round((pp.p ?? 0) * 100);
+                        const ci = Number.isFinite(pp.c) ? pp.c : (Number.isFinite(periodDaily?.Cfinal) ? periodDaily.Cfinal : null);
                   return (
                     <div key={k} className="space-y-1">
                       <div className="flex items-center justify-between text-xs text-white/80">
                         <span className="truncate">{label}</span>
-                        <span className="tabular-nums">{pct}%</span>
+                        <span className="tabular-nums">{pct}% {Number.isFinite(ci) ? `· C${Math.round(ci)}` : ""}</span>
                       </div>
                       <div className="h-2 rounded-full bg-white/10 overflow-hidden">
                         <div className="h-full rounded-full bg-white/30" style={{ width: `${pct}%` }} />

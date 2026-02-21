@@ -1,6 +1,7 @@
 import os
 import json
 import datetime
+import math
 
 import numpy as np
 import pandas as pd
@@ -37,6 +38,222 @@ TICKERS = {
     "VIX": "^VIX",
 }
 
+
+# ---------- Daily engine (Python port; keeps parity with src/core/engine.daily.js) ----------
+
+SCENARIOS = {
+    "1": [-1.0, 0.0, +1.0, 0.0, 0.0, 0.0],
+    "2": [0.0, -2.0, 0.0, +1.0, +1.0, 0.0],
+    "3": [+1.0, 0.0, +1.0, +0.5, 0.0, 0.0],
+    "4": [0.0, +1.0, -1.0, -1.0, 0.0, 0.0],
+    "5": [0.0, +1.0, 0.0, -1.0, 0.0, 0.0],
+    "6": [-0.5, -0.5, +1.0, 0.0, 0.0, +1.0],
+}
+
+def _clamp(v, lo, hi):
+    return max(lo, min(hi, v))
+
+def _hard_gate_pass(k: str, V):
+    x, y, rates, usd, vix, goldFear = V
+    kk = int(k)
+    if kk == 1:
+        return x < 0 and rates >= 0.5
+    if kk == 2:
+        return y < -1.0 and vix >= 0.5 and usd >= 0.5
+    if kk == 3:
+        return x > 0.5 and (rates >= 0.5 or usd >= 0.5)
+    if kk == 4:
+        return y > 0 and rates <= -0.5 and usd <= -0.5
+    if kk == 5:
+        return y > 0.5 and usd <= -0.5
+    if kk == 6:
+        return rates >= 0.5 and goldFear >= 0.5 and (x < 0 or y < 0)
+    return False
+
+def _euclid(V, S):
+    return float(np.sqrt(np.sum((np.array(V, dtype=float) - np.array(S, dtype=float)) ** 2)))
+
+def _compute_probs_spec(V):
+    keys_all = list(SCENARIOS.keys())
+    passed = [k for k in keys_all if _hard_gate_pass(k, V)]
+    cand = passed if len(passed) > 0 else keys_all
+
+    raw = {}
+    for k in cand:
+        d = _euclid(V, SCENARIOS[k])
+        raw[k] = math.exp(-d) if math.isfinite(d) else 0.0
+
+    s = sum(raw.values())
+    probs = {k: 0.0 for k in keys_all}
+    if s <= 0 or (not math.isfinite(s)):
+        u = 1.0 / max(1, len(keys_all))
+        for k in keys_all:
+            probs[k] = u
+    else:
+        for k in cand:
+            probs[k] = raw[k] / s
+    return probs, passed
+
+def _entropy_norm(probs: dict):
+    vals = list(probs.values())
+    K = len(vals)
+    H = 0.0
+    for p in vals:
+        if p > 0:
+            H += -p * math.log(p, 2)
+    return (H / math.log(K, 2)) if K > 1 else 0.0
+
+def _compute_C_spec(data_ok: bool, corr_avg: float, corr_surge: bool, z_short: float, V, probs: dict):
+    # Hard caps
+    if not data_ok:
+        return 30, {"data": True, "panic": False, "corr": False}
+
+    x, y, rates, usd, vix, goldFear = V
+
+    panic_confirmed = (y < -1.0 and usd > 0.5 and vix > 0.5)
+    if panic_confirmed:
+        return 35, {"data": False, "panic": True, "corr": False}
+
+    if corr_avg > 0.8:
+        return 40, {"data": False, "panic": False, "corr": True}
+
+    C = 100.0
+
+    # Top scenario
+    topk = max(probs.items(), key=lambda kv: kv[1])[0] if probs else None
+
+    # 1) entropy spread
+    H = _entropy_norm(probs)
+    if H > 0.7:
+        C -= 6
+
+    # 2) divergence
+    divergence = (abs(y) > 1.0 and abs(vix) < 0.3)
+    if divergence:
+        C -= 6
+
+    # 3) VIX mismatch
+    vix_mismatch = (y < 0 and vix < 0.2)
+    if vix_mismatch:
+        C -= 6
+
+    # 4) haven divergence
+    haven_div = (topk in ("4","5") and usd > 0.4 and goldFear < -0.7 and vix < 0.5)
+    if haven_div:
+        C -= 8
+
+    # 5) panic w/o gold
+    panic_no_gold = (topk == "2" and usd > 0.4 and vix > 0.3 and goldFear < -0.2)
+    if panic_no_gold:
+        C -= 6
+
+    # 6) rates headwind
+    rates_headwind = (topk in ("4","5") and y > 0.5 and rates > 0.8)
+    if rates_headwind:
+        C -= 6
+
+    # 7) fx shock mismatch
+    fx_shock = (usd > 0.8 and vix < 0.2 and abs(y) < 0.6)
+    if fx_shock:
+        C -= 6
+
+    zabs = abs(z_short) if math.isfinite(z_short) else 0.0
+    if vix > 1.2:
+        C -= 8
+    if corr_surge:
+        C -= 10
+    if zabs > 1.5:
+        C -= 6
+
+    conflict = 0
+    is_risk_on = topk in ("4","5")
+    is_panic = topk == "2"
+    is_stag = topk == "6"
+    if is_risk_on:
+        if usd > 0.6: conflict += 1
+        if goldFear < -0.7: conflict += 1
+        if vix > 0.7: conflict += 1
+        if rates > 0.9: conflict += 1
+    elif is_panic:
+        if vix < 0.3: conflict += 1
+        if usd < 0.2: conflict += 1
+    elif is_stag:
+        if rates < 0.5: conflict += 1
+        if y > 0.3: conflict += 1
+
+    if y < -0.8 and vix < 0.2: conflict += 1
+    if vix > 1.2 and abs(y) < 0.4: conflict += 1
+
+    conflict = int(_clamp(conflict, 0, 4))
+    if conflict > 0:
+        C -= conflict * 4
+        if conflict >= 3:
+            C -= 4
+
+    return int(round(_clamp(C, 5, 100))), {"data": False, "panic": False, "corr": False}
+
+def _compute_regime7_spec(passed_keys, Cfinal: int, V):
+    if not passed_keys or len(passed_keys) == 0:
+        return "7C"
+    if Cfinal < 45:
+        return "7B"
+    xy_mag = math.sqrt(V[0]**2 + V[1]**2)
+    if xy_mag < 0.5:
+        return "7A"
+    return None
+
+def _compute_score_spec(probs: dict, Cfinal: int, corr_avg: float, V, regime7):
+    p_top = max(probs.values()) if probs else 0.0
+    p_eff = p_top * (Cfinal / 100.0)
+    base = p_eff * 100.0
+
+    x, y, _, usd, vix, _ = V
+    Icorr = 1 if corr_avg > 0.8 else 0
+    Ipanic = 1 if (y < -1.0 and usd > 0.5 and vix > 0.5) else 0
+    Idefense = 1 if (x < 0 and y < 0) else 0
+    penalty_raw = 25*Icorr + 15*Ipanic + 15*Idefense
+    penalty_applied = penalty_raw * (Cfinal / 100.0)
+
+    score = _clamp(base - penalty_applied, 0, 100)
+    if regime7:
+        score = min(score, 60)
+    return int(round(score)), {"Icorr": Icorr, "Ipanic": Ipanic, "Idefense": Idefense}
+
+def compute_today_pack(featuresZ: dict):
+    # V in canonical order
+    V = [
+        float(featuresZ.get("x", 0.0)),
+        float(featuresZ.get("y", 0.0)),
+        float(featuresZ.get("rates", 0.0)),
+        float(featuresZ.get("usd", 0.0)),
+        float(featuresZ.get("vix", 0.0)),
+        float(featuresZ.get("goldFear", 0.0)),
+    ]
+    probs, passed = _compute_probs_spec(V)
+    Cfinal, caps = _compute_C_spec(True, 0.0, False, 0.0, V, probs)
+    regime7 = _compute_regime7_spec(passed, Cfinal, V)
+
+    score, flags = _compute_score_spec(probs, Cfinal, 0.0, V, regime7)
+
+    # Scenario-specific confidence Ci: top scenario gets Cfinal; others scale by p/pTop
+    p_top = max(probs.values()) if probs else 0.0
+    probs_with_c = {}
+    for k, p in probs.items():
+        if p_top > 0:
+            ci = int(round(_clamp(Cfinal * (p / p_top), 5, 100)))
+        else:
+            ci = int(round(_clamp(Cfinal, 5, 100)))
+        probs_with_c[str(k)] = {"p": float(p), "c": ci}
+
+    return {
+        "score": int(score),
+        "Cfinal": int(Cfinal),
+        "regime7": regime7 or "--",
+        "probs": probs_with_c,
+        "caps": caps,
+        "flags": flags,
+        "vec": V,
+    }
 
 def _zscore(series: pd.Series) -> float:
     s = series.dropna()
@@ -174,11 +391,17 @@ def main():
     for key, win in periods.items():
         periods_payload[key] = {"featuresZ": _compute_featuresZ(close, win)}
 
+    # Compute engine outputs (score/Cfinal/regime7/probs{p,c}) for each period
+    daily_pack = compute_today_pack(periods_payload["252D"]["featuresZ"])
+    for key in periods_payload.keys():
+        periods_payload[key]["daily"] = compute_today_pack(periods_payload[key]["featuresZ"])
+
     payload = {
         "schemaVersion": "2.3",
         "asOf": asof_ts.isoformat(),
         "lastTradingDay": _last_trading_day_et(now_et),
         "featuresZ": periods_payload["252D"]["featuresZ"],
+        "daily": daily_pack,
         "periods": periods_payload,
         "dataHealth": {"level": "OK", "source": "yfinance"},
         "latencyMin": latency_min,

@@ -8,5 +8,5 @@
 
 import { spawnSync } from "node:child_process";
 
-const p = spawnSync("python", ["scripts/update_daily.py"], { stdio: "inherit" });
+const p = spawnSync(process.env.PYTHON || (process.platform==="win32" ? "python" : "python3"), ["scripts/update_daily.py"], { stdio: "inherit" });
 process.exit(p.status ?? 1);
