@@ -71,16 +71,36 @@ def main():
     interval = "15m"
     period = "5d"
 
-    df = yf.download(
-        list(INTRADAY_TICKERS.values()),
-        period=period,
-        interval=interval,
-        auto_adjust=True,
-        progress=False,
-        group_by="ticker",
-        threads=True,
-    )
+        df = None
+    last_exc = None
+    for _try in range(3):
+        try:
+            df = yf.download(
+                list(INTRADAY_TICKERS.values()),
+                period=period,
+                interval=interval,
+                auto_adjust=True,
+                progress=False,
+                group_by="ticker",
+                threads=False,
+            )
+            if df is not None and len(df) > 0:
+                break
+        except Exception as e:
+            last_exc = e
+            df = None
+
     if df is None or len(df) == 0:
+        # Keep previous file to avoid breaking UI when Yahoo blocks CI
+        if os.path.exists(out_path):
+            with open(out_path, "r", encoding="utf-8") as f:
+                prev = json.load(f)
+            prev["dataHealth"] = {"level": "DEGRADED", "source": "cache", "msg": str(last_exc or "yfinance empty")[:180]}
+            prev["fetchedAt"] = now_et.isoformat()
+            with open(out_path, "w", encoding="utf-8") as f:
+                json.dump(prev, f, ensure_ascii=False, indent=2)
+            print("[WARN] Intraday fetch failed; kept previous intraday_latest.json")
+            return
         raise RuntimeError("No intraday data fetched from yfinance")
 
     close = pd.DataFrame(index=df.index)
