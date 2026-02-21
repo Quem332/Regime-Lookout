@@ -6,10 +6,8 @@ on:
     branches: [ main ]
     paths:
       - 'scripts/**'
-      - '.github/workflows/**'
+      - '.github/workflows/update-daily.yml'
   schedule:
-    # Runs hourly; script will skip unless market is likely closed.
-    # (DST-safe: we do gating in-script.)
     - cron: '15 * * * *'
 
 permissions:
@@ -30,8 +28,7 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -43,23 +40,14 @@ jobs:
           pip install -r requirements.txt
 
       - name: Gate: skip unless after US market close (ET)
-        run: |
-          python - <<'PY'
-          import datetime
-          from zoneinfo import ZoneInfo
-          et = ZoneInfo('America/New_York')
-          now = datetime.datetime.now(tz=et)
-          # Basic gating: update after 16:15 ET on weekdays; anytime on weekend.
-          if now.weekday() >= 5:
-              print('Weekend -> run')
-              raise SystemExit(0)
-          if (now.hour, now.minute) >= (16, 15):
-              print('After close -> run')
-              raise SystemExit(0)
-          print('Before close -> skip')
-          raise SystemExit(2)
-          PY
+        id: gate
         continue-on-error: true
+        run: |
+          python -c "import datetime; from zoneinfo import ZoneInfo; et=ZoneInfo('America/New_York'); now=datetime.datetime.now(tz=et);               import sys;               (sys.exit(0) if now.weekday()>=5 else None);               (sys.exit(0) if (now.hour, now.minute) >= (16,15) else None);               sys.exit(2)"
+
+      - name: Stop if gated
+        if: steps.gate.outcome != 'success'
+        run: echo "Gated. Skipping update." && exit 0
 
       - name: Build daily_latest.json
         run: node scripts/fetch_daily.js
