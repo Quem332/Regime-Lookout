@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Pill } from "../components/Pill";
 import { Modal } from "../components/Modal";
+import { tSafe } from "../render/mriPipeline";
 
 
 function tagText(tag){
@@ -21,6 +22,24 @@ function clamp01(x) {
   return Math.max(0, Math.min(1, v));
 }
 
+
+function tGet(t, path, fallback) {
+  try {
+    if (typeof t === "function") return tSafe(t, path, fallback);
+    if (t && typeof t === "object") {
+      const parts = String(path || "").split(".");
+      let cur = t;
+      for (const p of parts) {
+        if (!cur || typeof cur !== "object") return fallback;
+        cur = cur[p];
+      }
+      return cur ?? fallback;
+    }
+    return fallback;
+  } catch {
+    return fallback;
+  }
+}
 function Bar({ value01 }) {
   const w = Math.round(clamp01(value01) * 100);
   return (
@@ -57,9 +76,9 @@ export function PageScore({ t, daily, lang }) {
       <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="text-xs text-gray-400">{t.score.titleTop}</div>
+            <div className="text-xs text-gray-400">{tGet(t, "score.titleTop", "Score")}</div>
             <div className="text-3xl font-extrabold leading-none mt-1">{Math.round(score)}</div>
-            <div className="text-[11px] text-gray-400 mt-1">{t.score.reliability}: {Math.round(C)}</div>
+            <div className="text-[11px] text-gray-400 mt-1">{tGet(t, "score.reliability", "Reliability")}: {Math.round(C)}</div>
           </div>
 
           <div className="text-right">
@@ -87,7 +106,7 @@ export function PageScore({ t, daily, lang }) {
       {/* Top scenarios */}
       <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
         <div className="flex items-center justify-between">
-          <div className="text-sm font-semibold">{t.score.topScenarios}</div>
+          <div className="text-sm font-semibold">{tGet(t, "score.topScenarios", "Top scenarios")}</div>
           {allScenarios.length > 3 ? (
             <button
               data-swipe-ignore
@@ -101,7 +120,7 @@ export function PageScore({ t, daily, lang }) {
         <div className="mt-2 grid grid-cols-1 gap-2">
           {topScenarios.map((s) => (
             <div key={s.key} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/0 px-3 py-2">
-              <div className="text-sm font-semibold min-w-0 truncate">{t.scenarios[s.key] || s.name || "—"}</div>
+              <div className="text-sm font-semibold min-w-0 truncate">{tGet(t, `scenarios.${s.key}`, "—") || s.name || "—"}</div>
               <div className="text-sm font-bold">{pct(s.prob)}</div>
             </div>
           ))}

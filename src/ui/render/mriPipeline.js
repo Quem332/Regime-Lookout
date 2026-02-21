@@ -97,11 +97,12 @@ export function buildMriViewModel({ api, t }) {
   const V = normalizeV(daily);
   const quad = quadrantFromV(V);
 
-  const marketOpen = Boolean(mri?.marketOpen);
+  const marketOpen = Boolean(status?.marketOpen ?? mri?.marketOpen ?? daily?.marketOpen);
+  const timers = status?.timers ?? mri?.timers ?? null;
 
   return {
     raw: { daily, intraday, status },
-    meta: { marketOpen, asOf, regime7, score, Cfinal },
+    meta: { marketOpen, timers, asOf, regime7, score, Cfinal },
     scorePack: {
       visible: score != null,
       score,
