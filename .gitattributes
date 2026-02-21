@@ -1,0 +1,3 @@
+# Ensure workflow files are always LF so GitHub parses them consistently
+.github/workflows/*.yml text eol=lf
+.github/workflows/*.yaml text eol=lf

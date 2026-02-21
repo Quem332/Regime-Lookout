@@ -3,7 +3,7 @@ name: Update Daily Data (EOD)
 on:
   workflow_dispatch:
   schedule:
-    # Runs hourly; script will skip unless after market close (ET)
+    # Hourly; in-script gate will skip before close.
     - cron: '15 * * * *'
   push:
     branches: [ main ]
@@ -28,9 +28,14 @@ jobs:
         with:
           node-version: '20'
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Gate: skip unless after US market close (ET)
         id: gate
         continue-on-error: true
+        shell: bash
         run: |
           python - <<'PY'
           import datetime
@@ -40,15 +45,12 @@ jobs:
 
           # Weekend: allow update any time
           if now.weekday() >= 5:
-            print("Weekend -> run")
-            raise SystemExit(0)
+              raise SystemExit(0)
 
           # Weekday: allow after 16:15 ET
           if (now.hour, now.minute) >= (16, 15):
-            print("After close -> run")
-            raise SystemExit(0)
+              raise SystemExit(0)
 
-          print("Before close -> skip")
           raise SystemExit(2)
           PY
 
