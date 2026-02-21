@@ -2,15 +2,14 @@ name: Update Daily Data (EOD)
 
 on:
   workflow_dispatch:
+  schedule:
+    # Runs hourly; script will skip unless after market close (ET)
+    - cron: '15 * * * *'
   push:
     branches: [ main ]
     paths:
       - 'scripts/**'
-      - '.github/workflows/**'
-  schedule:
-    # Runs hourly; script will skip unless market is likely closed.
-    # (DST-safe: we do gating in-script.)
-    - cron: '15 * * * *'
+      - '.github/workflows/update-daily.yml'
 
 permissions:
   contents: write
@@ -25,34 +24,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-node@v4
         with:
-          python-version: '3.11'
-
-      - name: Install Python deps
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          node-version: '20'
 
       - name: Gate: skip unless after US market close (ET)
+        id: gate
+        continue-on-error: true
         run: |
           python - <<'PY'
           import datetime
           from zoneinfo import ZoneInfo
-          et = ZoneInfo('America/New_York')
+          et = ZoneInfo("America/New_York")
           now = datetime.datetime.now(tz=et)
-          # Basic gating: update after 16:15 ET on weekdays; anytime on weekend.
+
+          # Weekend: allow update any time
           if now.weekday() >= 5:
-              print('Weekend -> run')
-              raise SystemExit(0)
+            print("Weekend -> run")
+            raise SystemExit(0)
+
+          # Weekday: allow after 16:15 ET
           if (now.hour, now.minute) >= (16, 15):
-              print('After close -> run')
-              raise SystemExit(0)
-          print('Before close -> skip')
+            print("After close -> run")
+            raise SystemExit(0)
+
+          print("Before close -> skip")
           raise SystemExit(2)
           PY
-        continue-on-error: true
+
+      - name: Stop if gated
+        if: steps.gate.outcome != 'success'
+        run: echo "Gated. Skipping update." && exit 0
 
       - name: Build daily_latest.json
         run: node scripts/fetch_daily.js
