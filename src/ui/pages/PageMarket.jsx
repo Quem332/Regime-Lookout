@@ -3,6 +3,7 @@ import { Card } from "../components/Card";
 import { Pill } from "../components/Pill";
 import { loadLookback, saveLookback } from "../../storage/localSettings";
 import { buildMriViewModel, tSafe } from "../render/mriPipeline";
+import { buildPeriodCopy } from "../../core/verdict";
 import FactorBars from "../components/FactorBars";
 
 function isInteractiveTarget(el) {
@@ -35,16 +36,20 @@ export function PageMarket({ api, tab, setTab, t }) {
   // Period payload can be either the object itself or wrapped in { daily: ... } depending on pipeline version.
   const periodDaily = period?.daily ?? period ?? null;
   const periodTags = Array.isArray(periodDaily?.tags) ? periodDaily.tags : [];
-  const periodOneLine = useMemo(() => {
-    return buildOneLineVerdict({
-      score: Number.isFinite(periodDaily?.score) ? periodDaily.score : null,
+  const periodCopy = useMemo(() => {
+    return buildPeriodCopy({
       Cfinal: Number.isFinite(periodDaily?.Cfinal) ? periodDaily.Cfinal : null,
       regime7: periodDaily?.regime7 ?? null,
+      probs: periodDaily?.probs ?? null,
       tags: periodDaily?.tags ?? null,
+      lookbackKey: lookback,
       t,
+      lang: "en",
     });
+  }, [periodDaily?.Cfinal, periodDaily?.regime7, periodDaily?.probs, periodDaily?.tags, lookback, t]);
+
   }, [periodDaily?.score, periodDaily?.Cfinal, periodDaily?.regime7, periodDaily?.tags, t]);
-  const viewModel = period || daily;
+  const viewModel = periodDaily || daily;
 
   const view = tab ?? "b1"; // b1 | b2
 
@@ -114,7 +119,23 @@ export function PageMarket({ api, tab, setTab, t }) {
       </div>
       {view === "b1" ? (
         <div className="grid gap-3">
-          <Card title={t?.("b1.title", "Daily Scenarios") ?? "Daily Scenarios"} subtitle={t?.("b1.subtitle", "Distribution view (no single-call)") ?? "Distribution view (no single-call)"}>
+          <Card title={t?.("b1.title", "Period Interpretation") ?? "Period Interpretation"} subtitle={t?.("b1.subtitle", "Structure + distribution (no score)") ?? "Structure + distribution (no score)"}>
+            <div className="text-sm text-white/85 leading-snug">
+  {periodCopy?.summary ?? "--"}
+</div>
+{periodCopy?.warning ? <div className="mt-1 text-xs text-white/60 leading-snug">{periodCopy.warning}</div> : null}
+{periodCopy?.reasonsText ? <div className="mt-1 text-xs text-white/55 leading-snug">{periodCopy.reasonsText}</div> : null}
+
+{Array.isArray(periodCopy?.reasonTags) && periodCopy.reasonTags.length ? (
+  <div className="mt-2 flex flex-wrap gap-2">
+    {periodCopy.reasonTags.map((tg, i) => (
+      <Pill key={`p-${i}`} tone={tg.tone || "gray"} label={tg.label} msg={tg.msg} />
+    ))}
+  </div>
+) : null}
+
+<div className="mt-3" />
+
             <div className="space-y-2">
               {probList.length ? (
                 probList.map(([k, v]) => {
@@ -142,7 +163,7 @@ export function PageMarket({ api, tab, setTab, t }) {
         </div>
       ) : (
         <div className="grid gap-3">
-          <Card title={t?.("b2.factors", "Factors (6D)") ?? "Factors (6D)"} subtitle={t?.("b2.factorsSub", "z-score + raw snapshot") ?? "z-score + raw snapshot"}>
+          <Card title={t?.("b2.factors", "Period Breakdown") ?? "Period Breakdown"} subtitle={`${tSafe("en","b2.factorsSub","Factors (6D) + map")} · ${lookback.toUpperCase()}`}>
             <FactorBars V={viewModel?.V} raw={api?.mri?.inputsRaw ?? api?.mri?.daily?.inputsRaw ?? api?.mri?.meta?.inputsRaw} />
           </Card>
 

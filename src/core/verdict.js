@@ -243,3 +243,81 @@ export function buildScoreCopy({ score, Cfinal, regime7, probs, tags, t, lang = 
 
   return { summary, warning, reasonsText, reasonTags, entropyNorm: Hn };
 }
+
+// Period interpretation copy (B-1). No score, no single-call framing.
+// Focuses on regime structure, dispersion, confidence, and tags.
+export function buildPeriodCopy({ Cfinal, regime7, probs, tags, lookbackKey, t, lang }) {
+  const tr = (k, fallback) => tSafe(t, k, fallback);
+  const c = numOrNull(Cfinal);
+  const lowC = c != null && c < 45;
+  const entropy = entropyNormFromProbs(probs);
+  const dispersed = typeof entropy === "number" ? entropy >= 0.72 : hasEntropyTag(tags);
+
+  const lb = String(lookbackKey || "").toUpperCase();
+  const head = lb ? `${lb} ` : "";
+  const r7 = isRegime7(regime7);
+
+  // Top scenario (if any)
+  let topLabel = null;
+  let topP = null;
+  try {
+    if (probs && typeof probs === "object") {
+      const top = Object.entries(probs)
+        .filter(([, v]) => typeof v === "number" && Number.isFinite(v))
+        .sort((a, b) => b[1] - a[1])[0];
+      if (top) {
+        topLabel = top[0];
+        topP = top[1];
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  const summary = (() => {
+    if (r7) {
+      return tr("period.summary.r7", `${head}Structure is mixed/undefined over this window. Treat interpretation as low-conviction.`);
+    }
+    if (dispersed) {
+      return tr("period.summary.dispersed", `${head}Scenarios are dispersed. Avoid a single-story interpretation; use tags + distribution.`);
+    }
+    if (lowC) {
+      return tr("period.summary.lowc", `${head}Signal is present, but confidence is limited. Keep wording conservative.`);
+    }
+    return tr("period.summary.base", `${head}Structure looks internally consistent. Use tags + distribution to understand drivers.`);
+  })();
+
+  const warning = (() => {
+    if (c == null) return "";
+    if (c < 35) return tr("period.warn.verylow", "Very low confidence: prefer distribution and wait for cleaner structure.");
+    if (c < 45) return tr("period.warn.low", "Low confidence: treat any narrative as tentative.");
+    if (dispersed) return tr("period.warn.dispersed", "High dispersion: scenario conviction is weak even if the regime label looks stable.");
+    return "";
+  })();
+
+  const reasonTags = pickReasonTags(tags, lang, 4).map((x) => ({
+    tone: String(x.level || "neutral").includes("red") ? "red" : String(x.level || "").includes("yellow") ? "yellow" : "gray",
+    label: x.label,
+    msg: x.msg,
+  }));
+
+  const reasonsText = (() => {
+    const parts = [];
+    if (topLabel != null && topP != null) {
+      const pct = Math.round(topP * 100);
+      parts.push(tr("period.reasons.top", `Top scenario: S${topLabel} (~${pct}%)`));
+    }
+    if (typeof entropy === "number") {
+      parts.push(tr("period.reasons.entropy", `Dispersion (entropy): ${entropy.toFixed(2)}`));
+    }
+    if (c != null) {
+      parts.push(tr("period.reasons.c", `Confidence: ${Math.round(c)}`));
+    }
+    if (regime7 != null) {
+      parts.push(tr("period.reasons.regime", `Regime: ${String(regime7)}`));
+    }
+    return parts.filter(Boolean).slice(0, 4).join(" · ");
+  })();
+
+  return { summary, warning, reasonsText, reasonTags };
+}

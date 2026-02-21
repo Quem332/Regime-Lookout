@@ -25,6 +25,7 @@ export function normalizeLatest(raw) {
     latencyMin: numOrNull(raw.latencyMin),
     dataHealth: isPlainObject(raw.dataHealth) ? raw.dataHealth : (raw.dataHealth ? { level: String(raw.dataHealth) } : null),
     intraday: isPlainObject(raw.intraday) ? raw.intraday : null,
+    periods: isPlainObject(raw.periods) ? raw.periods : null,
     featuresZ,
   };
 

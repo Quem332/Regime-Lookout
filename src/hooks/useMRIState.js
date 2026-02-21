@@ -77,12 +77,9 @@ async function fetchJson(url, { timeoutMs = 12_000, retries = 2 } = {}) {
       }
 
       if (!res.ok) {
-  // Treat missing split files as "not available yet" (common during rollout / gated intraday).
-  if (res.status === 404 || res.status === 410) return null;
-
-  const msg = data?.detail ? String(data.detail) : `HTTP ${res.status}`;
-  throw new Error(`${msg} @ ${url}`);
-}
+        const msg = data?.detail ? String(data.detail) : `HTTP ${res.status}`;
+        throw new Error(`${msg} @ ${url}`);
+      }
 
       logger.debug("net.fetch_ok", {
         url,
@@ -308,6 +305,7 @@ function computeNextHalfHour(now) {
 export function useMRIState() {
   const [daily, setDaily] = useState(null);
   const [intraday, setIntraday] = useState(null);
+  const [period, setPeriod] = useState(null);
   const [status, setStatus] = useState(null);
   const latestRef = useRef(null); // last latest.json payload
   const dailyScenarioRef = useRef(null); // last daily scenario pack for intraday reuse
@@ -398,6 +396,13 @@ const zShortDaily = Number.isFinite(intraday?.zShort) ? intraday.zShort : Number
     };
 
     setDaily(snapshot);
+    try {
+      const pMap = buildPeriodMapFromLatest(latestRef.current, snapshot);
+      setPeriod(pMap);
+    } catch (e) {
+      logger.warn("period.build_failed", { message: e?.message });
+      setPeriod(null);
+    }
 
     idbSet("dailyResult", { daily: snapshot, savedAt: new Date().toISOString() }).catch((e) =>
       logger.warn("idb.daily_write_failed", { message: e?.message })
@@ -433,8 +438,14 @@ try {
     const zShortVal = i?.zShort;
     const corrAvg = i?.corrAvg;
 
+    const deviationReasons = [];
+
     const alert =
       Boolean(i?.corrSurge) || (typeof zShortVal === "number" && Number.isFinite(zShortVal) && Math.abs(zShortVal) > 2.5);
+
+    if (Boolean(i?.corrSurge)) deviationReasons.push("Correlation surge");
+    if (typeof zShortVal === "number" && Number.isFinite(zShortVal) && Math.abs(zShortVal) > 2.5) deviationReasons.push("Short-term dislocation (|z|>2.5)");
+
 
     const snapshot = {
       scenario: dailyScenarioRef.current,
@@ -447,6 +458,8 @@ try {
       meta: { cached: Boolean(latest?.cached), latencyMs: latest?.latencyMs ?? null, dataHealthLevel: latest?.dataHealth?.level ?? null },
       dataHealthLevel: latest?.dataHealth?.level ?? null,
       alert,
+      deviationReasons,
+      deviation: Boolean(alert),
       ts: new Date(),
     };
 
@@ -463,44 +476,32 @@ try {
 
     // Prefer split files (daily + intraday). If not present, fall back to legacy single-file.
     const [daily, intraday] = await Promise.all([
-  fetchJson(`${DAILY_URL}${bust}`, { timeoutMs: 15_000 }).catch(() => null),
-  fetchJson(`${INTRADAY_URL}${bust}`, { timeoutMs: 15_000 }).catch(() => null),
-]);
+      fetchJson(`${DAILY_URL}${bust}`, { timeoutMs: 15_000 }).catch(() => null),
+      fetchJson(`${INTRADAY_URL}${bust}`, { timeoutMs: 15_000 }).catch(() => null),
+    ]);
 
-// If only one split file exists, opportunistically fill the missing side from legacy latest.json.
-let legacy = null;
-if ((daily && !intraday) || (!daily && intraday)) {
-  legacy = await fetchJson(`${LEGACY_LATEST_URL}${bust}`, { timeoutMs: 15_000 }).catch(() => null);
-}
-
-const raw =
-  daily || intraday
-    ? {
-        schemaVersion: daily?.schemaVersion || intraday?.schemaVersion || legacy?.schemaVersion || "2.3",
-        asOf: daily?.asOf || intraday?.asOf || legacy?.asOf || null,
-        lastTradingDay: daily?.lastTradingDay || legacy?.lastTradingDay || null,
-
-        // Daily inputs (prefer daily split, then legacy)
-        featuresZ: daily?.featuresZ || legacy?.featuresZ || null,
-        periods: daily?.periods || legacy?.periods || null,
-
-        // Intraday inputs (prefer intraday split, then legacy)
-        intraday: intraday?.intraday || legacy?.intraday || null,
-
-        // Meta
-        dataHealth: daily?.dataHealth || intraday?.dataHealth || legacy?.dataHealth || null,
-        latencyMin:
-          typeof intraday?.latencyMin === "number"
-            ? intraday.latencyMin
-            : typeof daily?.latencyMin === "number"
-              ? daily.latencyMin
-              : typeof legacy?.latencyMin === "number"
-                ? legacy.latencyMin
+    const raw = daily || intraday
+      ? {
+          schemaVersion: daily?.schemaVersion || intraday?.schemaVersion || "2.3",
+          asOf: daily?.asOf || intraday?.asOf || null,
+          lastTradingDay: daily?.lastTradingDay || null,
+          // Daily inputs
+          featuresZ: daily?.featuresZ || null,
+          periods: daily?.periods || null,
+          // Intraday inputs
+          intraday: intraday?.intraday || null,
+          // Meta
+          dataHealth: daily?.dataHealth || intraday?.dataHealth || null,
+          latencyMin:
+            typeof intraday?.latencyMin === "number"
+              ? intraday.latencyMin
+              : typeof daily?.latencyMin === "number"
+                ? daily.latencyMin
                 : null,
-        fetchedAt: intraday?.fetchedAt || daily?.fetchedAt || legacy?.fetchedAt || null,
-        _sources: { daily: !!daily, intraday: !!intraday, legacy: !!legacy },
-      }
-    : await fetchJson(`${LEGACY_LATEST_URL}${bust}`, { timeoutMs: 15_000 });
+          fetchedAt: intraday?.fetchedAt || daily?.fetchedAt || null,
+          _sources: { daily: !!daily, intraday: !!intraday },
+        }
+      : await fetchJson(`${LEGACY_LATEST_URL}${bust}`, { timeoutMs: 15_000 });
 
     const norm = normalizeLatest(raw);
     if (!norm.ok) {
@@ -790,9 +791,10 @@ const raw =
 
   return {
     // Back-compat: expose both top-level and nested "mri" so UI pages can safely read api.mri.*
-    mri: { daily, intraday, status: statusComputed, refreshLatest },
+    mri: { daily, intraday, period, status: statusComputed, refreshLatest },
     daily,
     intraday,
+    period,
     status: statusComputed,
     refreshLatest,
     logger,
