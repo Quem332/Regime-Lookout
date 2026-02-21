@@ -9,6 +9,7 @@ on:
       - "requirements.txt"
       - ".github/workflows/update-daily.yml"
   schedule:
+    # Hourly; gate below will skip before close.
     - cron: "15 * * * *"
 
 permissions:
@@ -40,7 +41,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Gate: skip unless after US market close (ET)
+      - name: "Gate: skip unless after US market close (ET)"
         id: gate
         continue-on-error: true
         shell: bash

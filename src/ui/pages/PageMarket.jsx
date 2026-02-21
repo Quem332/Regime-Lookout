@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { Card } from "../components/Card";
 import { Pill } from "../components/Pill";
 import { loadLookback, saveLookback } from "../../storage/localSettings";
@@ -86,6 +86,7 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
       t,
       lang: lang || "en",
     });
+  }, [periodDaily?.Cfinal, periodDaily?.regime7, periodDaily?.probs, periodDaily?.tags, lookback, t, lang]);
   const viewModel = periodDaily || daily;
 
   const view = tab ?? "b1"; // b1 | b2
