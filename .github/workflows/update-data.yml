@@ -2,7 +2,6 @@ name: Update MRI Data (latest.json)
 
 on:
   schedule:
-    # Run every 15 minutes; script writes only at :00/:30 (+10m delay) or inside event windows.
     - cron: "*/15 * * * *"
   workflow_dispatch: {}
 
@@ -29,7 +28,7 @@ jobs:
         run: |
           python scripts/update_latest.py
 
-      - name: Commit & push if changed
+      - name: "Commit & push if changed"
         run: |
           git config user.name "mri-bot"
           git config user.email "mri-bot@users.noreply.github.com"

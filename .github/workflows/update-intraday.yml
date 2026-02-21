@@ -3,7 +3,6 @@ name: Update Intraday Data (Market Hours)
 on:
   workflow_dispatch:
   schedule:
-    # Every 5 minutes; in-script gate will skip off-hours.
     - cron: '*/5 * * * *'
 
 permissions:
@@ -27,7 +26,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Gate: run only during US regular market hours (ET)
+      - name: "Gate: run only during US regular market hours (ET)"
         id: gate
         continue-on-error: true
         shell: bash
@@ -38,11 +37,9 @@ jobs:
           et = ZoneInfo("America/New_York")
           now = datetime.datetime.now(tz=et)
 
-          # Skip weekends
           if now.weekday() >= 5:
               raise SystemExit(2)
 
-          # Regular hours 09:30-16:00 ET
           mins = now.hour*60 + now.minute
           if mins < (9*60+30) or mins > (16*60):
               raise SystemExit(2)
@@ -50,14 +47,14 @@ jobs:
           raise SystemExit(0)
           PY
 
-      - name: Stop if gated
+      - name: "Stop if gated"
         if: steps.gate.outcome != 'success'
         run: echo "Gated. Skipping update." && exit 0
 
       - name: Build intraday_latest.json
         run: node scripts/fetch_intraday.js
 
-      - name: Commit & push
+      - name: "Commit & push"
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

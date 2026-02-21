@@ -3,7 +3,6 @@ name: Update Daily Data (EOD)
 on:
   workflow_dispatch:
   schedule:
-    # Hourly; in-script gate will skip before close.
     - cron: '15 * * * *'
   push:
     branches: [ main ]
@@ -32,7 +31,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Gate: skip unless after US market close (ET)
+      - name: "Gate: skip unless after US market close (ET)"
         id: gate
         continue-on-error: true
         shell: bash
@@ -43,25 +42,23 @@ jobs:
           et = ZoneInfo("America/New_York")
           now = datetime.datetime.now(tz=et)
 
-          # Weekend: allow update any time
           if now.weekday() >= 5:
               raise SystemExit(0)
 
-          # Weekday: allow after 16:15 ET
           if (now.hour, now.minute) >= (16, 15):
               raise SystemExit(0)
 
           raise SystemExit(2)
           PY
 
-      - name: Stop if gated
+      - name: "Stop if gated"
         if: steps.gate.outcome != 'success'
         run: echo "Gated. Skipping update." && exit 0
 
       - name: Build daily_latest.json
         run: node scripts/fetch_daily.js
 
-      - name: Commit & push
+      - name: "Commit & push"
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
