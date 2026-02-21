@@ -62,7 +62,7 @@ function isTapLike(start, end, maxDist = 10, maxMs = 320) {
 // B: "Daily" / "Period" view (not intraday)
 // - B-1: scenarios focus (no score)
 // - B-2: breakdown (inputs + quadrant)
-export function PageMarket({ api, tab, setTab, t }) {
+export function PageMarket({ api, tab, setTab, t, lang }) {
   const vm = useMemo(() => buildMriViewModel({ api, t }), [api, t]);
   const daily = vm.raw.daily;
 
@@ -82,11 +82,10 @@ export function PageMarket({ api, tab, setTab, t }) {
       tags: periodDaily?.tags ?? null,
       lookbackKey: lookback,
       t,
-      lang: "en",
+      lang: lang || "en",
     });
   }, [periodDaily?.Cfinal, periodDaily?.regime7, periodDaily?.probs, periodDaily?.tags, lookback, t]);
 
-  }, [periodDaily?.score, periodDaily?.Cfinal, periodDaily?.regime7, periodDaily?.tags, t]);
   const viewModel = periodDaily || daily;
 
   const view = tab ?? "b1"; // b1 | b2
