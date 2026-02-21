@@ -6,9 +6,9 @@ on:
     branches: [ main ]
     paths:
       - "scripts/**"
+      - "requirements.txt"
       - ".github/workflows/update-daily.yml"
   schedule:
-    # Hourly; gate below will skip before close.
     - cron: "15 * * * *"
 
 permissions:
@@ -46,22 +46,14 @@ jobs:
         shell: bash
         run: |
           python - <<'PY'
-          import datetime
-          import sys
+          import datetime, sys
           from zoneinfo import ZoneInfo
-
           et = ZoneInfo("America/New_York")
           now = datetime.datetime.now(tz=et)
-
-          # Weekend: allow update any time
           if now.weekday() >= 5:
               sys.exit(0)
-
-          # Weekday: allow after 16:15 ET
           if (now.hour, now.minute) >= (16, 15):
               sys.exit(0)
-
-          # Otherwise: gate (non-zero)
           sys.exit(2)
           PY
 
