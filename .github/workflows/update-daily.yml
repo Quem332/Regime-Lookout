@@ -1,4 +1,4 @@
-name: Update Daily Data (EOD)
+﻿name: Update Daily Data (EOD)
 
 on:
   workflow_dispatch:

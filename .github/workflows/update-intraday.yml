@@ -1,4 +1,4 @@
-name: Update Intraday Data (Market Hours)
+﻿name: Update Intraday Data (Market Hours)
 
 on:
   workflow_dispatch:
