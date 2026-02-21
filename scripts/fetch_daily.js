@@ -2,11 +2,15 @@
 /**
  * Daily fetch entrypoint (GitHub Actions + local).
  *
- * We run the Python implementation to avoid re-implementing the feature
- * computation in JS.
+ * Tries python3 first (Ubuntu runners), falls back to python (Windows).
  */
-
 import { spawnSync } from "node:child_process";
 
-const p = spawnSync(process.env.PYTHON || (process.platform==="win32" ? "python" : "python3"), ["scripts/update_daily.py"], { stdio: "inherit" });
-process.exit(p.status ?? 1);
+function run(cmd) {
+  const p = spawnSync(cmd, ["scripts/update_daily.py"], { stdio: "inherit" });
+  return p.status ?? 1;
+}
+
+let code = run("python3");
+if (code !== 0) code = run("python");
+process.exit(code);

@@ -8,9 +8,7 @@ import { buildMriViewModel, tSafe } from "../render/mriPipeline";
 function isInteractiveTarget(el) {
   try {
     return Boolean(
-      el?.closest?.(
-        "button, a, input, textarea, select, [role='button'], [data-stop-toggle='1']"
-      )
+      el?.closest?.("button, a, input, textarea, select, [role='button'], [data-stop-toggle='1']")
     );
   } catch {
     return false;
@@ -24,37 +22,48 @@ function isTapLike(start, end, maxDist = 10, maxMs = 320) {
   return dx <= maxDist && dy <= maxDist && dt <= maxMs;
 }
 
+function clamp(v, lo, hi) {
+  return Math.max(lo, Math.min(hi, v));
+}
+function clamp01(v) {
+  return clamp(v, 0, 1);
+}
+
+function parseProbEntry(v) {
+  if (typeof v === "number" && Number.isFinite(v)) return { p: v, c: null };
+  if (Array.isArray(v) && typeof v[0] === "number") {
+    const p = Number(v[0]);
+    const c = typeof v[1] === "number" ? Number(v[1]) : null;
+    return { p: Number.isFinite(p) ? p : null, c: Number.isFinite(c) ? c : null };
+  }
+  if (v && typeof v === "object") {
+    const p = v.p ?? v.prob ?? v.value;
+    const c = v.c ?? v.conf ?? v.confidence;
+    const pp = typeof p === "number" ? p : null;
+    const cc = typeof c === "number" ? c : null;
+    return { p: Number.isFinite(pp) ? pp : null, c: Number.isFinite(cc) ? cc : null };
+  }
+  return { p: null, c: null };
+}
+
 export function PageHome({ api, tab, setTab, t, lang }) {
   const isKo = String(lang || "").toLowerCase().startsWith("ko");
   const L = (ko, en) => (isKo ? ko : en);
 
   const vm = useMemo(() => buildMriViewModel({ api, t }), [api, t]);
 
-  const daily = vm.raw?.daily ?? null;
-  const status = vm.raw?.status ?? null;
-  const intraday = vm.raw?.intraday ?? null;
+  const daily = vm.raw?.daily ?? vm.daily ?? null;
+  const intraday = vm.raw?.intraday ?? vm.intraday ?? null;
+  const status = vm.raw?.status ?? vm.status ?? null;
 
-  const asOf = vm.meta?.asOf ?? daily?.asOf ?? api?.mri?.asOf ?? "";
+  const asOf = vm.meta?.asOf ?? daily?.meta?.asOf ?? "";
+  const marketOpen = Boolean(vm.raw?.marketOpen ?? status?.marketOpen ?? false);
+  const countdown = vm.raw?.timers?.countdown ?? status?.timers?.countdown ?? "--:--";
 
-  // Market open flag: prefer status.marketOpen (most explicit), then vm.meta.marketOpen.
-  const marketOpen = Boolean(
-    status?.marketOpen ??
-      api?.mri?.status?.marketOpen ??
-      vm.meta?.marketOpen ??
-      api?.mri?.marketOpen
-  );
+  // "a1" (Daily) <-> "a2" (Intraday)
+  const view = tab ?? "a1";
 
-  // Countdown: prefer status.timers.countdown
-  const countdown =
-    status?.timers?.countdown ??
-    api?.statusComputed?.status?.timers?.countdown ??
-    intraday?.timers?.countdown ??
-    "--:--";
-
-  // Swipe toggle: A-1 (Daily) <-> A-2 (Intraday)
-  const view = tab ?? "a1"; // "a1" | "a2"
-
-  // Pointer “tap” toggles view (but ignores interactive elements)
+  // Tap toggles view (ignores interactive elements)
   const downRef = useRef(null);
   const onPointerDown = (e) => {
     if (isInteractiveTarget(e.target)) return;
@@ -64,8 +73,8 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     if (isInteractiveTarget(e.target)) return;
     const start = downRef.current;
     downRef.current = null;
-    const end = { x: e.clientX, y: e.clientY, t: performance.now() };
     if (!start) return;
+    const end = { x: e.clientX, y: e.clientY, t: performance.now() };
     if (!isTapLike(start, end)) return;
     setTab?.((v) => (v === "a1" ? "a2" : "a1"));
   };
@@ -75,21 +84,6 @@ export function PageHome({ api, tab, setTab, t, lang }) {
   const Cfinal = Number.isFinite(daily?.Cfinal) ? daily.Cfinal : null;
   const regime7 = daily?.regime7 ?? "--";
 
-  const probs = daily?.probs && typeof daily.probs === "object" ? daily.probs : {};
-  const probList = useMemo(() => {
-    return Object.entries(probs)
-      .filter(([, v]) => {
-        const pp = probParts(v);
-        return typeof pp.p === "number" && Number.isFinite(pp.p);
-      })
-      .sort((a, b) => {
-        const pa = probParts(a[1]).p || 0;
-        const pb = probParts(b[1]).p || 0;
-        return pb - pa;
-      })
-      .slice(0, 6);
-  }, [daily?.probs]);
-
   const V = daily?.V || daily?.vec || daily?.featuresZ || null;
   const x = Array.isArray(V) ? V[0] : V && typeof V === "object" ? V.x : null;
   const y = Array.isArray(V) ? V[1] : V && typeof V === "object" ? V.y : null;
@@ -97,10 +91,10 @@ export function PageHome({ api, tab, setTab, t, lang }) {
   const scoreLabel = useMemo(() => {
     if (score == null || Number.isNaN(score)) return "--";
     const s = Number(score);
-    if (s >= 67) return t?.("scoreLabels.calm", "Calm") ?? "Calm";
-    if (s >= 34) return t?.("scoreLabels.watch", "Watch") ?? "Watch";
-    return t?.("scoreLabels.risk", "Risk") ?? "Risk";
-  }, [score, t]);
+    if (s >= 67) return tSafe(lang, "scoreLabels.calm", L("안정", "Calm"));
+    if (s >= 34) return tSafe(lang, "scoreLabels.watch", L("관찰", "Watch"));
+    return tSafe(lang, "scoreLabels.risk", L("주의", "Risk"));
+  }, [score, lang]);
 
   const oneLine = useMemo(() => {
     return buildOneLineVerdict({
@@ -124,76 +118,38 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     });
   }, [score, Cfinal, daily?.regime7, daily?.probs, daily?.tags, t, lang]);
 
-  // Quadrant dot
-  const clamp01 = (v) => Math.max(0, Math.min(1, v));
+  // Scenario probabilities (supports {p,c} entries)
+  const probs = daily?.probs && typeof daily.probs === "object" ? daily.probs : {};
+  const probList = useMemo(() => {
+    return Object.entries(probs)
+      .map(([k, v]) => [k, parseProbEntry(v)])
+      .filter(([, obj]) => typeof obj?.p === "number" && Number.isFinite(obj.p))
+      .sort((a, b) => b[1].p - a[1].p)
+      .slice(0, 6);
+  }, [daily?.probs]);
 
-function probParts(v) {
-  // Supports:
-  // - number: p
-  // - [p, c]
-  // - { p, c } or { prob, c } or { p, C } etc.
-  try {
-    if (typeof v === "number" && Number.isFinite(v)) return { p: v, c: null };
-    if (Array.isArray(v)) {
-      const p = typeof v[0] === "number" ? v[0] : null;
-      const c = typeof v[1] === "number" ? v[1] : null;
-      return { p, c };
-    }
-    if (v && typeof v === "object") {
-      const p = typeof v.p === "number" ? v.p : typeof v.prob === "number" ? v.prob : typeof v.value === "number" ? v.value : null;
-      const c = typeof v.c === "number" ? v.c : typeof v.C === "number" ? v.C : typeof v.conf === "number" ? v.conf : typeof v.confidence === "number" ? v.confidence : null;
-      return { p, c };
-    }
-  } catch {}
-  return { p: null, c: null };
-}
-  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  // Quadrant dot
   const dotPos = useMemo(() => {
     const xx = x == null ? 0 : clamp(Number(x), -3, 3);
     const yy = y == null ? 0 : clamp(Number(y), -3, 3);
     return { left: ((xx + 3) / 6) * 100, top: (1 - (yy + 3) / 6) * 100 };
   }, [x, y]);
 
-  // Intraday diagnostics (null-safe)
-  const intradayDiag =
-    vm.intraday?.data ?? // vm.intraday.data == raw intraday object
-    intraday?.data ?? // some builds wrap
-    intraday ??
-    status?.intraday ??
-    null;
-
-  // “First snapshot received?” (best-effort)
-  const intradayReady =
-    Boolean(intraday?.prices) ||
-    Boolean(intraday?.meta?.asOf) ||
-    Boolean(intraday?.ts) ||
-    Boolean(intraday?.meta?.fetchedAt) ||
-    Boolean(status?.intraday?.prices) ||
-    Boolean(status?.intraday?.meta?.asOf);
+  const nextOpenInfo = useMemo(() => {
+    if (marketOpen) return null;
+    const m = String(countdown || "").match(/^(\d+):(\d{2})$/);
     if (!m) return { countdown: countdown || "--:--", openAt: null, openAtET: null };
     const hh = Number(m[1]);
     const mm = Number(m[2]);
-    if (!Number.isFinite(hh) || !Number.isFinite(mm))
-      return { countdown: countdown || "--:--", openAt: null, openAtET: null };
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return { countdown: countdown || "--:--", openAt: null, openAtET: null };
 
     const ms = (hh * 60 + mm) * 60 * 1000;
     const openAt = new Date(Date.now() + ms);
 
-    const openAtLocal = new Intl.DateTimeFormat(undefined, {
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(openAt);
-    const openAtET = new Intl.DateTimeFormat(undefined, {
-      timeZone: "America/New_York",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(openAt);
+    const openAtLocal = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(openAt);
+    const openAtET = new Intl.DateTimeFormat(undefined, { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit" }).format(openAt);
 
-    return {
-      countdown: `${hh}:${String(mm).padStart(2, "0")}`,
-      openAt: openAtLocal,
-      openAtET,
-    };
+    return { countdown: `${hh}:${String(mm).padStart(2, "0")}`, openAt: openAtLocal, openAtET };
   }, [marketOpen, countdown]);
 
   return (
@@ -203,65 +159,18 @@ function probParts(v) {
       onPointerUp={onPointerUp}
       style={{ touchAction: "pan-y" }}
     >
-</div>
-
-      {/* Overlay: blocks only intraday view */}
-      {false ? (
-        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40" />
-          <div className="relative mx-6 w-full max-w-sm rounded-2xl border border-white/15 bg-slate-950/80 p-4 text-center">
-            <div className="text-sm font-semibold text-white/90">
-              {!marketOpen
-                ? tSafe(lang, "market.closed", "Market Closed")
-                : tSafe(lang, "intraday.analyzing", "Intraday Analyzing…")}
-            </div>
-
-            {!marketOpen ? (
-              <>
-                <div className="mt-1 text-xs text-white/70">
-                  {tSafe(lang, "market.opensIn", "Opens in")} {nextOpenInfo?.countdown ?? countdown}
-                  <span className="ml-2 text-white/50">(09:30 ET)</span>
-                </div>
-                {nextOpenInfo?.openAt ? (
-                  <div className="mt-1 text-[11px] text-white/60">
-                    {tSafe(lang, "market.openAt", "Open")}: {nextOpenInfo.openAtET} ET · {nextOpenInfo.openAt} {t?.("market.local", "local") ?? "local"}
-                  </div>
-                ) : null}
-                <div className="mt-2 text-[11px] text-white/55">
-                  {tSafe(lang, "market.noteDaily", "Daily view stays available off-hours.")}
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="mt-1 text-xs text-white/70">
-                  {tSafe(lang, "intraday.waitFirst", "Session is open, waiting for first intraday snapshot…")}
-                </div>
-                <div className="mt-1 text-[11px] text-white/60">
-                  {tSafe(lang, "intraday.refresh", "Refresh timer")}: <span className="font-mono">{countdown}</span>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      ) : null}
-
       {/* A-1 (Daily) */}
       {view === "a1" ? (
         <div className="grid gap-3">
-          <Card
-            title={tSafe(lang, "a1.title", L("오늘", "Today"))}
-            subtitle={tSafe(lang, "a1.subtitle", L("위험조정 해석", "Risk-adjusted interpretation"))}
-          >
+          <Card title={tSafe(lang, "a1.title", L("오늘", "Today"))} subtitle={tSafe(lang, "a1.subtitle", L("위험조정 해석", "Risk-adjusted interpretation"))}>
             <div className="flex items-end justify-between gap-3">
               <div className="flex items-end gap-3">
-                <div className="text-5xl font-extrabold text-white leading-none">
-                  {score == null ? "--" : String(Math.round(score))}
-                </div>
+                <div className="text-5xl font-extrabold text-white leading-none">{score == null ? "--" : String(Math.round(score))}</div>
                 <div className="pb-1">
                   <div className="text-sm font-semibold text-white/90">{scoreLabel}</div>
                   <div className="text-xs text-white/70">
                     🛡 {tSafe(lang, "score.confidence", L("신뢰도", "Confidence"))} {Cfinal == null ? "--" : String(Math.round(Cfinal))}
-                    {daily?.rel?.capped ? ` (${t?.("score.capped", "Capped") ?? "Capped"})` : ""}
+                    {daily?.rel?.capped ? ` (${tSafe(lang, "score.capped", L("상한", "Capped"))})` : ""}
                   </div>
                 </div>
               </div>
@@ -274,9 +183,7 @@ function probParts(v) {
               </div>
             </div>
 
-            <div className="mt-2 text-sm text-white/85 leading-snug">
-              {scoreCopy?.summary ?? oneLine ?? ""}
-            </div>
+            <div className="mt-2 text-sm text-white/85 leading-snug">{scoreCopy?.summary ?? oneLine ?? ""}</div>
             <div className="mt-1 text-xs text-white/60 leading-snug">{scoreCopy?.warning ?? ""}</div>
             <div className="mt-1 text-xs text-white/55 leading-snug">{scoreCopy?.reasonsText ?? ""}</div>
 
@@ -296,43 +203,20 @@ function probParts(v) {
             </div>
           </Card>
 
-          <Card
-            title={tSafe(lang, "ui.reasoningTags", L("근거 태그", "Reasoning Tags"))}
-            subtitle={tSafe(lang, "tags.subtitle", L("주요 요인", "Key drivers"))}
-          >
-            <div className="flex flex-wrap gap-2">
-              {Array.isArray(scoreCopy?.reasonTags) && scoreCopy.reasonTags.length ? (
-                scoreCopy.reasonTags.map((obj, i) => (
-                  <Pill
-                    key={`tag-${i}`}
-                    tone={obj.tone || "gray"}
-                    label={String(obj.label ?? "--")}
-                    msg={String(obj.msg ?? "")}
-                    lang={lang}
-                  />
-                ))
-              ) : (
-                <span className="text-xs text-white/60">--</span>
-              )}
-            </div>
-          </Card>
-
-          <Card
-            title={tSafe(lang, "ui.probabilities", L("시나리오 확률", "Scenario Probabilities"))}
-            subtitle={tSafe(lang, "daily.topScenario", L("확률 분포", "Probability distribution"))}
-          >
+          <Card title={tSafe(lang, "ui.probabilities", L("시나리오 확률", "Scenario Probabilities"))} subtitle={tSafe(lang, "daily.topScenario", L("확률 분포", "Probability distribution"))}>
             <div className="space-y-2">
               {probList.length ? (
-                probList.map(([k, v]) => {
+                probList.map(([k, obj]) => {
                   const label = t?.(`scenarios.${k}`, `S${k}`) ?? `S${k}`;
-                  const pp = probParts(v);
-                  const pct = Math.round((pp.p ?? 0) * 100);
-                  const ci = Number.isFinite(pp.c) ? pp.c : Cfinal;
+                  const pct = Math.round(obj.p * 100);
+                  const cShown = Number.isFinite(obj.c) ? obj.c : Cfinal;
                   return (
                     <div key={k} className="space-y-1">
                       <div className="flex items-center justify-between text-xs text-white/80">
                         <span className="truncate">{label}</span>
-                        <span className="tabular-nums">{pct}% {Number.isFinite(ci) ? `· C${Math.round(ci)}` : ""}</span>
+                        <span className="tabular-nums">
+                          {pct}%{Number.isFinite(cShown) ? ` · C${Math.round(cShown)}` : ""}
+                        </span>
                       </div>
                       <div className="h-2 rounded-full bg-white/10 overflow-hidden">
                         <div className="h-full rounded-full bg-white/30" style={{ width: `${pct}%` }} />
@@ -347,40 +231,37 @@ function probParts(v) {
           </Card>
         </div>
       ) : (
-        // A-2 (Intraday)
+        // A-2 (Intraday) — always accessible (no lock overlay)
         <div className="grid gap-3">
-          <Card
-            title={t?.("a2.factors", "Factors (6D)") ?? "Factors (6D)"}
-            subtitle={t?.("a2.factorsSub", "z-score + raw snapshot") ?? "z-score + raw snapshot"}
-          >
-            <FactorBars
-              V={daily?.V}
-              raw={api?.mri?.inputsRaw ?? api?.mri?.daily?.inputsRaw ?? api?.mri?.meta?.inputsRaw}
-            />
+          {!marketOpen ? (
+            <Card title={tSafe(lang, "market.closed", L("장 마감", "Market Closed"))} subtitle={tSafe(lang, "market.noteDaily", L("데일리는 장 외 시간에도 이용 가능합니다.", "Daily view stays available off-hours."))}>
+              <div className="mt-1 text-xs text-white/70">
+                {tSafe(lang, "market.opensIn", L("개장까지", "Opens in"))} {nextOpenInfo?.countdown ?? countdown}
+                <span className="ml-2 text-white/50">(09:30 ET)</span>
+              </div>
+              {nextOpenInfo?.openAt ? (
+                <div className="mt-1 text-[11px] text-white/60">
+                  {tSafe(lang, "market.openAt", L("개장", "Open"))}: {nextOpenInfo.openAtET} ET · {nextOpenInfo.openAt} {tSafe(lang, "market.local", L("현지", "local"))}
+                </div>
+              ) : null}
+            </Card>
+          ) : null}
+
+          <Card title={tSafe(lang, "a2.factors", L("요인 (6D)", "Factors (6D)"))} subtitle={tSafe(lang, "a2.factorsSub", L("z-score + raw", "z-score + raw snapshot"))}>
+            <FactorBars V={daily?.V} raw={api?.mri?.inputsRaw ?? api?.mri?.daily?.inputsRaw ?? api?.mri?.meta?.inputsRaw} />
           </Card>
 
-          <Card
-            title={t?.("ui.quadrant", "Position Map") ?? "Position Map"}
-            subtitle={t?.("quadrant.subtitle", "Growth↔Defense, Inflow↔Outflow") ?? "Growth↔Defense, Inflow↔Outflow"}
-          >
+          <Card title={tSafe(lang, "ui.quadrant", L("포지션 맵", "Position Map"))} subtitle={tSafe(lang, "quadrant.subtitle", L("성장↔방어, 유입↔유출", "Growth↔Defense, Inflow↔Outflow"))}>
             <div className="relative w-full aspect-[16/9] rounded-2xl bg-white/5 border border-white/10 overflow-hidden">
               <div className="absolute inset-0">
                 <div className="absolute left-1/2 top-0 bottom-0 w-px bg-white/10" />
                 <div className="absolute top-1/2 left-0 right-0 h-px bg-white/10" />
               </div>
 
-              <div className="absolute left-3 top-2 text-[10px] text-white/60">
-                {t?.("quadrant.defense", "Defense") ?? "Defense"}
-              </div>
-              <div className="absolute right-3 top-2 text-[10px] text-white/60">
-                {t?.("quadrant.growth", "Growth") ?? "Growth"}
-              </div>
-              <div className="absolute left-3 bottom-2 text-[10px] text-white/60">
-                {t?.("quadrant.outflow", "Outflow") ?? "Outflow"}
-              </div>
-              <div className="absolute right-3 bottom-2 text-[10px] text-white/60">
-                {t?.("quadrant.inflow", "Inflow") ?? "Inflow"}
-              </div>
+              <div className="absolute left-3 top-2 text-[10px] text-white/60">{tSafe(lang, "quadrant.defense", L("방어", "Defense"))}</div>
+              <div className="absolute right-3 top-2 text-[10px] text-white/60">{tSafe(lang, "quadrant.growth", L("성장", "Growth"))}</div>
+              <div className="absolute left-3 bottom-2 text-[10px] text-white/60">{tSafe(lang, "quadrant.outflow", L("유출", "Outflow"))}</div>
+              <div className="absolute right-3 bottom-2 text-[10px] text-white/60">{tSafe(lang, "quadrant.inflow", L("유입", "Inflow"))}</div>
 
               <div
                 className="absolute w-3 h-3 rounded-full bg-white/70 shadow"
@@ -395,31 +276,16 @@ function probParts(v) {
             </div>
           </Card>
 
-          <Card
-            title={t?.("a2.intra", "Intraday Diagnostics") ?? "Intraday Diagnostics"}
-            subtitle={
-              marketOpen
-                ? t?.("a2.intraOpen", "Live (market hours)") ?? "Live (market hours)"
-                : t?.("a2.intraClosed", "Off-hours") ?? "Off-hours"
-            }
-          >
-            {marketOpen ? (
+          <Card title={tSafe(lang, "a2.intra", L("장중 진단", "Intraday Diagnostics"))} subtitle={marketOpen ? tSafe(lang, "a2.intraOpen", L("실시간", "Live")) : tSafe(lang, "a2.intraClosed", L("장 외", "Off-hours"))}>
+            {intraday?.intraday ? (
               <div className="text-xs text-white/70 space-y-1">
-                <div>
-                  z_short: {Number.isFinite(intradayDiag?.zShort) ? Number(intradayDiag.zShort).toFixed(2) : "--"}
-                </div>
-                <div>
-                  corrAvg: {Number.isFinite(intradayDiag?.corrAvg) ? Number(intradayDiag.corrAvg).toFixed(2) : "--"}
-                </div>
-                <div>corrSurge: {intradayDiag?.corrSurge ? "YES" : "NO"}</div>
+                <div>z_short: {Number.isFinite(intraday?.intraday?.zShort) ? Number(intraday.intraday.zShort).toFixed(2) : "--"}</div>
+                <div>corrAvg: {Number.isFinite(intraday?.intraday?.corrAvg) ? Number(intraday.intraday.corrAvg).toFixed(2) : "--"}</div>
+                <div>corrSurge: {intraday?.intraday?.corrSurge ? "YES" : "NO"}</div>
               </div>
             ) : (
               <div className="text-sm text-white/70 leading-relaxed">
-                {t?.(
-                  "a2.intraNote",
-                  "Intraday signals are disabled off-hours. Daily interpretation remains available."
-                ) ??
-                  "Intraday signals are disabled off-hours. Daily interpretation remains available."}
+                {tSafe(lang, "intraday.waitFirst", L("인트라데이 스냅샷을 기다리는 중입니다.", "Waiting for first intraday snapshot…"))}
               </div>
             )}
           </Card>

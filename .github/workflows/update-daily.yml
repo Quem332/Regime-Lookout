@@ -2,13 +2,15 @@ name: Update Daily Data (EOD)
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '15 * * * *'
   push:
     branches: [ main ]
     paths:
       - 'scripts/**'
-      - '.github/workflows/update-daily.yml'
+      - '.github/workflows/**'
+  schedule:
+    # Runs hourly; script will skip unless market is likely closed.
+    # (DST-safe: we do gating in-script.)
+    - cron: '15 * * * *'
 
 permissions:
   contents: write
@@ -26,8 +28,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -38,31 +42,29 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: "Gate: skip unless after US market close (ET)"
-        id: gate
-        continue-on-error: true
-        shell: bash
+      - name: Gate: skip unless after US market close (ET)
         run: |
           python - <<'PY'
           import datetime
           from zoneinfo import ZoneInfo
-          et = ZoneInfo("America/New_York")
+          et = ZoneInfo('America/New_York')
           now = datetime.datetime.now(tz=et)
+          # Basic gating: update after 16:15 ET on weekdays; anytime on weekend.
           if now.weekday() >= 5:
+              print('Weekend -> run')
               raise SystemExit(0)
           if (now.hour, now.minute) >= (16, 15):
+              print('After close -> run')
               raise SystemExit(0)
+          print('Before close -> skip')
           raise SystemExit(2)
           PY
-
-      - name: "Stop if gated"
-        if: steps.gate.outcome != 'success'
-        run: echo "Gated. Skipping update." && exit 0
+        continue-on-error: true
 
       - name: Build daily_latest.json
         run: node scripts/fetch_daily.js
 
-      - name: "Commit & push"
+      - name: Commit & push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

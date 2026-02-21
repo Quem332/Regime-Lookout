@@ -1,9 +1,16 @@
 #!/usr/bin/env node
 /**
  * Intraday fetch entrypoint (GitHub Actions + local).
+ *
+ * Tries python3 first (Ubuntu runners), falls back to python (Windows).
  */
-
 import { spawnSync } from "node:child_process";
 
-const p = spawnSync(process.env.PYTHON || (process.platform==="win32" ? "python" : "python3"), ["scripts/update_intraday.py"], { stdio: "inherit" });
-process.exit(p.status ?? 1);
+function run(cmd) {
+  const p = spawnSync(cmd, ["scripts/update_intraday.py"], { stdio: "inherit" });
+  return p.status ?? 1;
+}
+
+let code = run("python3");
+if (code !== 0) code = run("python");
+process.exit(code);
