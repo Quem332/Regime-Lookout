@@ -7,9 +7,8 @@ import { getTagBilingual } from "../../core/tagGlossary";
  * - tone: "good" | "warn" | "bad" | "neutral"
  * - level: "green" | "yellow" | "red"  (engine output)
  */
-export function TagList({ tags = [], title = null, lang = "en" }) {
+export function TagList({ tags = [], title = "Reasoning Tags", lang = "en" }) {
   const items = Array.isArray(tags) ? tags : [];
-  const titleFinal = title || (lang === "ko" ? "태그" : "Reasoning Tags");
 
   const levelToTone = (lvl) => {
     if (lvl === "green") return "good";
@@ -63,50 +62,73 @@ export function TagList({ tags = [], title = null, lang = "en" }) {
     return base;
   };
 
-  const norm = items
-    .map(normalize)
-    .filter((x) => x && x.text && x.text !== "undefined");
+  const norm = items.map(normalize).filter((x) => x.text && x.text !== "undefined");
 
-  // Deduplicate by displayed label (after bilingual mapping), to prevent "double tags"
-  const unique = Array.from(
-    new Map(
-      norm.map((t) => {
-        const bi = getTagBilingual({ label: t.text, msg: t.msg, ...(t.raw || {}) });
-        const label = lang === "ko" ? bi.koLabel : bi.enLabel;
-        const key = (label || "").toString().replace(/^[^\w\u3131-\uD79D]+\s*/, "").trim();
-        return [key || label || t.text, { ...t, bi }];
-      })
-    ).values()
-  );
+  // de-dupe by label (after bilingual mapping) so the same tag doesn't show twice
+  const unique = [];
+  const seen = new Set();
+  for (const x of norm) {
+    const bi = getTagBilingual({ label: x.text, msg: x.msg, ...(x.raw || {}) });
+    const key = `${bi.enLabel || ""}__${bi.koLabel || ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push({ ...x, bi });
+  }
+
+  const order = ["bad", "warn", "neutral", "good"];
+  const grouped = order
+    .map((tone) => ({ tone, items: unique.filter((x) => x.tone === tone) }))
+    .filter((g) => g.items.length);
+
+  const toneLabel = (tone) => {
+    if (lang === "ko") {
+      if (tone === "bad") return "주의(중요)";
+      if (tone === "warn") return "경고";
+      if (tone === "neutral") return "참고";
+      if (tone === "good") return "완화";
+      return "태그";
+    }
+    if (tone === "bad") return "High priority";
+    if (tone === "warn") return "Warnings";
+    if (tone === "neutral") return "Info";
+    if (tone === "good") return "Stabilizers";
+    return "Tags";
+  };
+
 
   return (
     <div style={{ display: "grid", gap: 10 }}>
-      {titleFinal ? (
+      {title ? (
         <div style={{ fontSize: 13, fontWeight: 700, opacity: 0.9 }}>
-          {titleFinal}
+          {title}
         </div>
       ) : null}
 
       {unique.length === 0 ? (
-        <div style={{ fontSize: 12, opacity: 0.7 }}>
-          {lang === "ko" ? "태그 없음" : "No tags"}
-        </div>
+        <div style={{ fontSize: 12, opacity: 0.7 }}>No tags available.</div>
       ) : (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {unique.map((t, i) => {
-            const bi = t.bi;
-            const titleText =
-              (lang === "ko" ? (bi.koMsg || bi.enMsg) : (bi.enMsg || bi.koMsg)) || "";
-            return (
-              <span
-                key={`${lang === "ko" ? bi.koLabel : bi.enLabel}-${i}`}
-                style={chipStyle(t.tone)}
-                title={titleText || undefined}
-              >
-                {lang === "ko" ? bi.koLabel : bi.enLabel}
-              </span>
-            );
-          })}
+        <div style={{ display: "grid", gap: 10 }}>
+          {grouped.map((g) => (
+            <div key={g.tone} style={{ display: "grid", gap: 6 }}>
+              {grouped.length > 1 ? (
+                <div style={{ fontSize: 11, opacity: 0.65, letterSpacing: 0.2 }}>{toneLabel(g.tone)}</div>
+              ) : null}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {g.items.map((t, i) => {
+                  const titleText = (lang === "ko" ? (t.bi.koMsg || t.bi.enMsg) : (t.bi.enMsg || t.bi.koMsg)) || "";
+                  return (
+                    <span
+                      key={`${lang === "ko" ? t.bi.koLabel : t.bi.enLabel}-${i}`}
+                      style={chipStyle(t.tone)}
+                      title={titleText || undefined}
+                    >
+                      {lang === "ko" ? t.bi.koLabel : t.bi.enLabel}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
