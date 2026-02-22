@@ -29,10 +29,16 @@ import { idbGet, idbSet } from "../storage/idb";
 const APP_BASE = import.meta.env.BASE_URL ?? "/";
 const ABS_BASE = new URL(APP_BASE, document.baseURI).toString();
 
-const DAILY_URL = new URL("data/daily_latest.json", ABS_BASE).toString();
-const INTRADAY_URL = new URL("data/intraday_latest.json", ABS_BASE).toString();
-const LEGACY_LATEST_URL = new URL("data/latest.json", ABS_BASE).toString();
-const CAL_URL = new URL("data/calendar.json", ABS_BASE).toString();
+// Data hosting: in production we fetch JSON from the separate `data` branch via raw.githubusercontent.com
+const DATA_BRANCH_RAW = "https://raw.githubusercontent.com/Quem332/Regime-Lookout/data/public/data/";
+const IS_LOCALHOST = typeof location !== "undefined" && (location.hostname === "localhost" || location.hostname === "127.0.0.1");
+const IS_GH_PAGES = typeof location !== "undefined" && location.hostname.endsWith("github.io");
+const DATA_BASE_ABS = (IS_GH_PAGES && !IS_LOCALHOST) ? DATA_BRANCH_RAW : DATA_BASE_ABS;
+
+const DAILY_URL = new URL("daily_latest.json", DATA_BASE_ABS).toString();
+const INTRADAY_URL = new URL("intraday_latest.json", DATA_BASE_ABS).toString();
+const LEGACY_LATEST_URL = new URL("latest.json", DATA_BASE_ABS).toString();
+const CAL_URL = new URL("calendar.json", DATA_BASE_ABS).toString();
 
 // Display latency buckets (minutes)
 function latencyTone(latencyMin) {
@@ -399,6 +405,7 @@ function computeMarketClock(now) {
 }
 
 function formatHMS(totalSec) {
+  if (!Number.isFinite(totalSec)) return "--:--:--";
   const s = Math.max(0, Math.floor(totalSec));
   const hh = String(Math.floor(s / 3600)).padStart(2, "0");
   const mm = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
