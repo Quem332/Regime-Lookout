@@ -21,7 +21,9 @@ export function StatusPill({ market, timers, health, marketOpen, eventWindow }) 
 
   const dataTone = toneToPill(market?.tone);
   const dataLabel = market?.label || "DATA --:--";
-  const nextLabel = timers?.countdown ? `NEXT ${timers.countdown}` : "NEXT --:--";
+  const rawCountdown = timers?.countdown;
+  const safeCountdown = typeof rawCountdown === "string" && !rawCountdown.includes("NaN") ? rawCountdown : null;
+  const nextLabel = safeCountdown ? `NEXT ${safeCountdown}` : "NEXT --:--";
   const healthTone = toneToPill(health?.tone);
   return (
     <div className="flex items-center gap-2">

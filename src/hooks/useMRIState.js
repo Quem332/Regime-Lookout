@@ -411,7 +411,9 @@ function computeMarketClock(now) {
 }
 
 function formatHMS(totalSec) {
-  const s = Math.max(0, Math.floor(totalSec));
+  const n = Number(totalSec);
+  if (!Number.isFinite(n)) return "--:--";
+  const s = Math.max(0, Math.floor(n));
   const hh = String(Math.floor(s / 3600)).padStart(2, "0");
   const mm = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
   const ss = String(s % 60).padStart(2, "0");

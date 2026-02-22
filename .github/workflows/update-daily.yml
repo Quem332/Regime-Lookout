@@ -50,7 +50,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Gate: decide whether to run (ET)
+      - name: "Gate: decide whether to run (ET)"
         id: gate
         shell: bash
         run: |
