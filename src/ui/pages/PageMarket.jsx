@@ -65,11 +65,6 @@ function isTapLike(start, end, maxDist = 10, maxMs = 320) {
 export function PageMarket({ api, tab, setTab, t, lang }) {
   const L = (ko, en) => (String(lang || "").startsWith("ko") ? ko : en);
 
-  // Labels (kept local to avoid ReferenceError in minified builds)
-  const W_PROB = L("확률", "Probability");
-  const W_CONF = L("신뢰도", "Confidence");
-
-
   const vm = useMemo(() => buildMriViewModel({ api, t }), [api, t]);
   const daily = vm.raw.daily;
 
@@ -216,7 +211,7 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
       ) : (
         <div className="grid gap-3">
           <Card title={t?.("b2.factors", "Period Breakdown") ?? "Period Breakdown"} subtitle={`${tSafe("en","b2.factorsSub","Factors (6D) + map")} · ${lookback.toUpperCase()}`}>
-            <FactorBars V={viewModel?.V} raw={api?.mri?.inputsRaw ?? api?.mri?.daily?.inputsRaw ?? api?.mri?.meta?.inputsRaw}  lang={lang} showIntradayNote={Boolean(api?.mri?.marketOpen) && Boolean(api?.mri?.intraday)} />
+            <FactorBars V={viewModel?.V} raw={api?.mri?.inputsRaw ?? api?.mri?.daily?.inputsRaw ?? api?.mri?.meta?.inputsRaw} />
           </Card>
 
           <Card title={t?.("ui.quadrant", "Position Map") ?? "Position Map"} subtitle={t?.("quadrant.subtitle", "Growth↔Defense, Inflow↔Outflow") ?? "Growth↔Defense, Inflow↔Outflow"}>
@@ -234,13 +229,13 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
               <div
                 className="absolute w-3 h-3 rounded-full bg-white/70 shadow"
                 style={{ left: `calc(${dotPos.left}% - 6px)`, top: `calc(${dotPos.top}% - 6px)` }}
-                title={`x=${x == null ? "--" : Number(x).toFixed(2)}, y=${y == null ? "--" : Number(y).toFixed(2)}`}
+                title={tSafe(lang, "quadrant.tip", L("성장↔방어 / 유입↔유출", "Growth↔Defense / Inflow↔Outflow"))}
               />
             </div>
 
             <div className="mt-2 flex items-center justify-between text-xs text-white/70">
-              <span>x: {x == null ? "--" : Number(x).toFixed(2)}</span>
-              <span>y: {y == null ? "--" : Number(y).toFixed(2)}</span>
+              <span>{tSafe(lang, "factors.growthDefense", L("QQQM(성장) ↔ XLP(방어)", "QQQM (Growth) ↔ XLP (Defense)"))}: {x == null ? "--" : Number(x).toFixed(2)}</span>
+              <span>{tSafe(lang, "factors.inflowOutflow", L("VOO(유입 ↔ 유출)", "VOO (Inflow ↔ Outflow)"))}: {y == null ? "--" : Number(y).toFixed(2)}</span>
             </div>
           </Card>
         </div>

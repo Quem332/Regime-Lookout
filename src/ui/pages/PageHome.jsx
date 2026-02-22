@@ -236,12 +236,11 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       ) : (
         // A-2 (Intraday) — always accessible (no lock overlay)
         <div className="grid gap-3">
-          {!marketOpen ? (
-            
+            </Card>
           ) : null}
 
           <Card title={tSafe(lang, "a2.factors", L("요인 (6D)", "Factors (6D)"))} subtitle={tSafe(lang, "a2.factorsSub", L("z-score + raw", "z-score + raw snapshot"))}>
-            <FactorBars V={daily?.V} raw={api?.mri?.inputsRaw ?? api?.mri?.daily?.inputsRaw ?? api?.mri?.meta?.inputsRaw}  lang={lang} showIntradayNote={Boolean(api?.mri?.marketOpen) && Boolean(api?.mri?.intraday)} />
+            <FactorBars V={daily?.V} raw={api?.mri?.inputsRaw ?? api?.mri?.daily?.inputsRaw ?? api?.mri?.meta?.inputsRaw} />
           </Card>
 
           <Card title={tSafe(lang, "ui.quadrant", L("포지션 맵", "Position Map"))} subtitle={tSafe(lang, "quadrant.subtitle", L("성장↔방어, 유입↔유출", "Growth↔Defense, Inflow↔Outflow"))}>
@@ -259,13 +258,13 @@ export function PageHome({ api, tab, setTab, t, lang }) {
               <div
                 className="absolute w-3 h-3 rounded-full bg-white/70 shadow"
                 style={{ left: `calc(${dotPos.left}% - 6px)`, top: `calc(${dotPos.top}% - 6px)` }}
-                title={`x=${x == null ? "--" : Number(x).toFixed(2)}, y=${y == null ? "--" : Number(y).toFixed(2)}`}
+                title={tSafe(lang, "quadrant.tip", L("성장↔방어 / 유입↔유출", "Growth↔Defense / Inflow↔Outflow"))}
               />
             </div>
 
             <div className="mt-2 flex items-center justify-between text-xs text-white/70">
-              <span>x: {x == null ? "--" : Number(x).toFixed(2)}</span>
-              <span>y: {y == null ? "--" : Number(y).toFixed(2)}</span>
+              <span>{tSafe(lang, "factors.growthDefense", L("QQQM(성장) ↔ XLP(방어)", "QQQM (Growth) ↔ XLP (Defense)"))}: {x == null ? "--" : Number(x).toFixed(2)}</span>
+              <span>{tSafe(lang, "factors.inflowOutflow", L("VOO(유입 ↔ 유출)", "VOO (Inflow ↔ Outflow)"))}: {y == null ? "--" : Number(y).toFixed(2)}</span>
             </div>
           </Card>
 
@@ -276,7 +275,9 @@ export function PageHome({ api, tab, setTab, t, lang }) {
                 <div>corrAvg: {Number.isFinite(intraday?.intraday?.corrAvg) ? Number(intraday.intraday.corrAvg).toFixed(2) : "--"}</div>
                 <div>corrSurge: {intraday?.intraday?.corrSurge ? "YES" : "NO"}</div>
               </div>
-            ) : (null)}
+            ) : (
+              <div className="text-xs text-white/60">--</div>
+            )}
           </Card>
         </div>
       )}
