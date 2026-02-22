@@ -40,28 +40,27 @@ jobs:
 
       - name: Publish all outputs to data branch
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           rm -rf _data_branch
           mkdir -p _data_branch
 
-          git fetch origin data || true
-          if git show-ref --verify --quiet refs/remotes/origin/data; then
-            git clone --depth 1 --branch data "https://github.com/${GITHUB_REPOSITORY}.git" _data_branch
-          else
-            git clone --depth 1 "https://github.com/${GITHUB_REPOSITORY}.git" _data_branch
-            (cd _data_branch && git checkout --orphan data && git rm -rf . || true)
-          fi
+          git clone --depth 1 --branch data "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" _data_branch
+
+          (cd _data_branch && git config user.name "github-actions[bot]")
+          (cd _data_branch && git config user.email "41898282+github-actions[bot]@users.noreply.github.com")
 
           mkdir -p _data_branch/public/data
           cp -f public/data/*.json _data_branch/public/data/ 2>/dev/null || true
 
+          (cd _data_branch && git add public/data)
           (cd _data_branch && \
-            git add public/data && \
-            git diff --cached --quiet || git commit -m "data: refresh all outputs [skip ci]")
-
-          (cd _data_branch && git push origin data)
+            if ! git diff --cached --quiet; then \
+              git commit -m "data: refresh all outputs [skip ci]"; \
+              git push origin data; \
+            else \
+              echo "No changes to commit."; \
+            fi)

@@ -29,16 +29,22 @@ import { idbGet, idbSet } from "../storage/idb";
 const APP_BASE = import.meta.env.BASE_URL ?? "/";
 const ABS_BASE = new URL(APP_BASE, document.baseURI).toString();
 
-// Data hosting: in production we fetch JSON from the separate `data` branch via raw.githubusercontent.com
-const DATA_BRANCH_RAW = "https://raw.githubusercontent.com/Quem332/Regime-Lookout/data/public/data/";
-const IS_LOCALHOST = typeof location !== "undefined" && (location.hostname === "localhost" || location.hostname === "127.0.0.1");
-const IS_GH_PAGES = typeof location !== "undefined" && location.hostname.endsWith("github.io");
-const DATA_BASE_ABS = (IS_GH_PAGES && !IS_LOCALHOST) ? DATA_BRANCH_RAW : DATA_BASE_ABS;
+// Prefer fetching data from the dedicated `data` branch (raw.githubusercontent.com)
+// so GitHub Pages deploy does NOT rebuild on every 5-min data refresh.
+const DEFAULT_DATA_REPO = "Quem332/Regime-Lookout";
+const DATA_REPO = import.meta.env.VITE_DATA_REPO || DEFAULT_DATA_REPO;
+const DATA_BRANCH = import.meta.env.VITE_DATA_BRANCH || "data";
+const DATA_RAW_BASE =
+  import.meta.env.VITE_DATA_RAW_BASE ||
+  `https://raw.githubusercontent.com/${DATA_REPO}/${DATA_BRANCH}/public/data/`;
 
-const DAILY_URL = new URL("daily_latest.json", DATA_BASE_ABS).toString();
-const INTRADAY_URL = new URL("intraday_latest.json", DATA_BASE_ABS).toString();
-const LEGACY_LATEST_URL = new URL("latest.json", DATA_BASE_ABS).toString();
-const CAL_URL = new URL("calendar.json", DATA_BASE_ABS).toString();
+const rawUrl = (name) => new URL(name, DATA_RAW_BASE).toString();
+const pagesUrl = (name) => new URL(`data/${name}`, ABS_BASE).toString();
+
+const DAILY_URLS = [rawUrl("daily_latest.json"), pagesUrl("daily_latest.json")];
+const INTRADAY_URLS = [rawUrl("intraday_latest.json"), pagesUrl("intraday_latest.json")];
+const LEGACY_LATEST_URLS = [rawUrl("latest.json"), pagesUrl("latest.json")];
+const CAL_URLS = [rawUrl("calendar.json"), pagesUrl("calendar.json")];
 
 // Display latency buckets (minutes)
 function latencyTone(latencyMin) {
@@ -405,7 +411,6 @@ function computeMarketClock(now) {
 }
 
 function formatHMS(totalSec) {
-  if (!Number.isFinite(totalSec)) return "--:--:--";
   const s = Math.max(0, Math.floor(totalSec));
   const hh = String(Math.floor(s / 3600)).padStart(2, "0");
   const mm = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
@@ -597,14 +602,26 @@ try {
     );
   };
 
+  const fetchFirst = async (urlList, opts) => {
+    let lastErr = null;
+    for (const u of urlList) {
+      try {
+        return await fetchJson(u, opts);
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    throw lastErr || new Error("all fetch attempts failed");
+  };
+
   const refreshLatest = async () => {
     const started = performance.now();
     const bust = `?t=${Date.now()}`;
 
     // Prefer split files (daily + intraday). If not present, fall back to legacy single-file.
     const [daily, intraday] = await Promise.all([
-      fetchJson(`${DAILY_URL}${bust}`, { timeoutMs: 15_000 }).catch(() => null),
-      fetchJson(`${INTRADAY_URL}${bust}`, { timeoutMs: 15_000 }).catch(() => null),
+      fetchFirst(DAILY_URLS.map((u) => `${u}${bust}`), { timeoutMs: 15_000 }).catch(() => null),
+      fetchFirst(INTRADAY_URLS.map((u) => `${u}${bust}`), { timeoutMs: 15_000 }).catch(() => null),
     ]);
 
     const raw = daily || intraday
@@ -628,7 +645,10 @@ try {
           fetchedAt: intraday?.fetchedAt || daily?.fetchedAt || null,
           _sources: { daily: !!daily, intraday: !!intraday },
         }
-      : await fetchJson(`${LEGACY_LATEST_URL}${bust}`, { timeoutMs: 15_000 });
+      : await fetchFirst(LEGACY_LATEST_URLS.map((u) => `${u}${bust}`), { timeoutMs: 15_000 });
+
+    // If split files didn't exist AND legacy is also missing/invalid, normalizeLatest will fail.
+    // That case is handled below with a clear "data pending" UI message.
 
     const norm = normalizeLatest(raw);
     if (!norm.ok) {
@@ -681,7 +701,7 @@ try {
   const refreshCalendar = async () => {
     try {
       const bust = `?t=${Date.now()}`;
-      const cal = await fetchJson(`${CAL_URL}${bust}`, { timeoutMs: 10_000 });
+      const cal = await fetchFirst(CAL_URLS.map((u) => `${u}${bust}`), { timeoutMs: 10_000 });
       calRef.current = { events: parseCalendar(cal), loaded: true };
       return calRef.current.events;
     } catch (e) {
