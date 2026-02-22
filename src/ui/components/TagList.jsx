@@ -7,8 +7,9 @@ import { getTagBilingual } from "../../core/tagGlossary";
  * - tone: "good" | "warn" | "bad" | "neutral"
  * - level: "green" | "yellow" | "red"  (engine output)
  */
-export function TagList({ tags = [], title = "Reasoning Tags", lang = "en" }) {
+export function TagList({ tags = [], title = null, lang = "en" }) {
   const items = Array.isArray(tags) ? tags : [];
+  const titleFinal = title || (lang === "ko" ? "태그" : "Reasoning Tags");
 
   const levelToTone = (lvl) => {
     if (lvl === "green") return "good";
@@ -62,23 +63,40 @@ export function TagList({ tags = [], title = "Reasoning Tags", lang = "en" }) {
     return base;
   };
 
-  const norm = items.map(normalize).filter((x) => x.text && x.text !== "undefined");
+  const norm = items
+    .map(normalize)
+    .filter((x) => x && x.text && x.text !== "undefined");
+
+  // Deduplicate by displayed label (after bilingual mapping), to prevent "double tags"
+  const unique = Array.from(
+    new Map(
+      norm.map((t) => {
+        const bi = getTagBilingual({ label: t.text, msg: t.msg, ...(t.raw || {}) });
+        const label = lang === "ko" ? bi.koLabel : bi.enLabel;
+        const key = (label || "").toString().replace(/^[^\w\u3131-\uD79D]+\s*/, "").trim();
+        return [key || label || t.text, { ...t, bi }];
+      })
+    ).values()
+  );
 
   return (
     <div style={{ display: "grid", gap: 10 }}>
-      {title ? (
+      {titleFinal ? (
         <div style={{ fontSize: 13, fontWeight: 700, opacity: 0.9 }}>
-          {title}
+          {titleFinal}
         </div>
       ) : null}
 
-      {norm.length === 0 ? (
-        <div style={{ fontSize: 12, opacity: 0.7 }}>No tags available.</div>
+      {unique.length === 0 ? (
+        <div style={{ fontSize: 12, opacity: 0.7 }}>
+          {lang === "ko" ? "태그 없음" : "No tags"}
+        </div>
       ) : (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {norm.map((t, i) => {
-            const bi = getTagBilingual({ label: t.text, msg: t.msg, ...(t.raw || {}) });
-            const titleText = (lang === "ko" ? (bi.koMsg || bi.enMsg) : (bi.enMsg || bi.koMsg)) || "";
+          {unique.map((t, i) => {
+            const bi = t.bi;
+            const titleText =
+              (lang === "ko" ? (bi.koMsg || bi.enMsg) : (bi.enMsg || bi.koMsg)) || "";
             return (
               <span
                 key={`${lang === "ko" ? bi.koLabel : bi.enLabel}-${i}`}

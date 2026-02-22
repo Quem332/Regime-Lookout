@@ -86,6 +86,25 @@ jobs:
           print(f"reason={reason}")
           PY
 
+      - name: Check if already updated (ET day)
+        id: already
+        run: |
+          set -euo pipefail
+          TODAY_ET=$(TZ=America/New_York date +%Y-%m-%d)
+          echo "TODAY_ET=$TODAY_ET"
+          # Try to read existing daily_latest.json from data branch
+          rm -rf _data_branch || true
+          git clone --depth 1 --branch data https://github.com/${{ github.repository }}.git _data_branch || true
+          if [ -f _data_branch/public/data/daily_latest.json ]; then
+            EXISTING_DAY=$(node -e "const fs=require('fs'); const j=JSON.parse(fs.readFileSync('_data_branch/public/data/daily_latest.json','utf8')); const d=j?.daily?.meta?.lastTradingDay || j?.daily?.meta?.asOf || ''; console.log(String(d).slice(0,10));" || true)
+            echo "EXISTING_DAY=$EXISTING_DAY"
+            if [ "$EXISTING_DAY" = "$TODAY_ET" ]; then
+              echo "skip=true" >> $GITHUB_OUTPUT
+              echo "Already updated for $TODAY_ET → skipping."
+              exit 0
+            fi
+          fi
+          echo "skip=false" >> $GITHUB_OUTPUT
       - name: Stop if gated
         if: steps.gate.outputs.run != '1'
         run: echo "Gated (${{ steps.gate.outputs.reason }}). Skipping update." && exit 0

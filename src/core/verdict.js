@@ -81,8 +81,12 @@ export function buildOneLineVerdict({ score, Cfinal, regime7, tags, t }) {
 
 
 function tSafe(t, key, fallback) {
+  if (!t) return fallback;
+  // support both dictionary-style and function-style translators (createT)
   try {
-    return typeof t === "function" ? (t(key, fallback) ?? fallback) : fallback;
+    if (typeof t === "function") return t(key, fallback) ?? fallback;
+    const v = t[key];
+    return v == null ? fallback : v;
   } catch {
     return fallback;
   }
