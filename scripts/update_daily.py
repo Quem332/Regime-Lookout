@@ -1,5 +1,37 @@
 import os
 import json
+import urllib.request
+
+def _write_stub_daily(path: str, reason: str) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    stub = {
+        'schema': 'daily.v1',
+        'asOf': None,
+        'status': 'unavailable',
+        'reason': reason,
+        'generatedAt': datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace('+00:00','Z'),
+    }
+    with open(path, 'w', encoding='utf-8', newline='\n') as f:
+        json.dump(stub, f, ensure_ascii=False, separators=(',', ':'))
+
+def _try_copy_previous_daily(path: str) -> bool:
+    repo = os.environ.get('GITHUB_REPOSITORY')
+    if not repo:
+        return False
+    url = f'https://raw.githubusercontent.com/{repo}/data/public/data/daily_latest.json'
+    try:
+        with urllib.request.urlopen(url, timeout=20) as r:
+            data = r.read()
+        if not data or len(data) < 20:
+            return False
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'wb') as f:
+            f.write(data)
+        print('[daily] reused previous daily_latest.json from data branch')
+        return True
+    except Exception as e:
+        print(f'[daily] failed to reuse previous file: {e}')
+        return False
 import datetime
 import math
 

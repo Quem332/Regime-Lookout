@@ -1,59 +1,40 @@
-name: Update MRI Data (latest.json)
+name: Rebuild latest.json (Manual)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
-    paths:
-      - "scripts/**"
-      - "requirements.txt"
-      - ".github/workflows/**"
-      - "src/**"
 
 permissions:
   contents: write
 
+concurrency:
+  group: rebuild-latest
+  cancel-in-progress: true
+
 jobs:
-  update:
+  rebuild:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-python@v5
         with:
-          node-version: '20'
-          cache: 'npm'
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: "requirements.txt"
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-          cache-dependency-path: 'requirements.txt'
-
-      - name: Install deps
+      - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Update latest.json
-        run: |
-          python scripts/update_latest.py
+      - name: Merge latest.json (from existing public/data/*)
+        run: python scripts/update_latest.py
 
-      - name: Commit & push if changed
+      - name: Publish latest.json to data branch
+        shell: bash
         run: |
           set -euo pipefail
-
-          mkdir -p /tmp/mri-data
-          cp -f public/data/latest.json /tmp/mri-data/ || true
-          git reset --hard
           git clean -fdx
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
           git fetch origin data || true
           if git show-ref --verify --quiet refs/remotes/origin/data; then
             git checkout -B data origin/data
@@ -61,11 +42,8 @@ jobs:
             git checkout --orphan data
             git rm -rf . || true
           fi
-
           mkdir -p public/data
-          cp -f /tmp/mri-data/*.json public/data/ || true
-
+          git checkout main -- public/data/latest.json || true
           git add public/data/latest.json
-          git diff --cached --quiet && echo "No changes" && exit 0
-          git commit -m "data: update latest.json [skip ci]"
-          git push -u origin data
+          git diff --cached --quiet || git commit -m "data: rebuild latest.json [skip ci]"
+          git push origin data

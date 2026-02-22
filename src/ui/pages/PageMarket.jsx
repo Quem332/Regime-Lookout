@@ -86,7 +86,7 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
       t,
       lang: lang || "en",
     });
-  }, [periodDaily?.Cfinal, periodDaily?.regime7, periodDaily?.probs, periodDaily?.tags, lookback, t, lang]);
+  }, [periodDaily?.Cfinal, periodDaily?.regime7, periodDaily?.probs, periodDaily?.tags, lookback, t]);
   const viewModel = periodDaily || daily;
 
   const view = tab ?? "b1"; // b1 | b2

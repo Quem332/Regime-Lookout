@@ -2,8 +2,14 @@ name: Update Daily Data (EOD)
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - "scripts/**"
+      - "requirements.txt"
+      - ".github/workflows/update-daily.yml"
+      - ".github/workflows/update-intraday.yml"
   schedule:
-    # Hourly; gate below will skip before close.
     - cron: "15 * * * *"
 
 permissions:
@@ -18,8 +24,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -37,44 +41,47 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: "Gate — run only after US market close (ET)"
+      - name: Gate — run only after US market close (ET)
         id: gate
         shell: bash
         run: |
           python - <<'PY'
-          import os, datetime
+          import datetime, sys
           from zoneinfo import ZoneInfo
           et = ZoneInfo("America/New_York")
           now = datetime.datetime.now(tz=et)
-          run = 0
+          run = False
+          # Weekend: allow anytime
           if now.weekday() >= 5:
-              run = 1
+              run = True
+          # Weekday: allow after 16:15 ET
           elif (now.hour, now.minute) >= (16, 15):
-              run = 1
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
-              f.write(f"run={run}\n")
-          print(f"[gate] run={run} now_et={now.isoformat()}")
-          PY
+              run = True
+          print(f"gate_run={run} now_et={now.isoformat()}")
+          # write output
+          with open(sys.argv[1], "a", encoding="utf-8") as f:
+              f.write(f"run={'true' if run else 'false'}\n")
+          PY "$GITHUB_OUTPUT"
 
       - name: Stop if gated
-        if: steps.gate.outputs.run != '1'
+        if: steps.gate.outputs.run != 'true'
         run: echo "Gated. Skipping update." && exit 0
-      - name: Build daily_latest.json
+
+      - name: Build daily_latest.json (+ periods)
         run: node scripts/fetch_daily.js
+
+      - name: Build calendar.json (NYSE)
+        run: python scripts/update_calendar.py
+
+      - name: Merge latest.json
+        run: python scripts/update_latest.py
 
       - name: Publish data to data branch
         shell: bash
         run: |
           set -euo pipefail
-
-          mkdir -p /tmp/mri-data
-          cp -f public/data/daily_latest.json /tmp/mri-data/ || true
-          git reset --hard
+          # keep working tree clean before switching branches
           git clean -fdx
-          cp -f public/data/latest.json /tmp/mri-data/ || true
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git fetch origin data || true
           if git show-ref --verify --quiet refs/remotes/origin/data; then
@@ -85,9 +92,10 @@ jobs:
           fi
 
           mkdir -p public/data
-          cp -f /tmp/mri-data/*.json public/data/ || true
+          git checkout main -- public/data || true
+          # copy generated files from main workspace
+          git checkout main -- public/data/daily_latest.json public/data/period_20d.json public/data/period_60d.json public/data/period_252d.json public/data/calendar.json public/data/latest.json || true
 
-          git add public/data/*.json
-          git diff --cached --quiet && echo "No data changes" && exit 0
-          git commit -m "data(daily): refresh daily_latest.json [skip ci]"
-          git push -u origin data
+          git add public/data/daily_latest.json public/data/period_20d.json public/data/period_60d.json public/data/period_252d.json public/data/calendar.json public/data/latest.json
+          git diff --cached --quiet || git commit -m "data: update daily/period/calendar/latest [skip ci]"
+          git push origin data

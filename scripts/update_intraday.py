@@ -1,5 +1,39 @@
 import os
 import json
+
+import urllib.request
+
+def _write_stub(path: str, reason: str) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    stub = {
+        'schema': 'intraday.v1',
+        'asOf': None,
+        'status': 'unavailable',
+        'reason': reason,
+        'generatedAt': datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace('+00:00','Z'),
+    }
+    with open(path, 'w', encoding='utf-8', newline='\n') as f:
+        json.dump(stub, f, ensure_ascii=False, separators=(',', ':'))
+
+def _try_copy_previous(path: str) -> bool:
+    # Try to reuse last good file from data branch to avoid breaking UI when yfinance is flaky.
+    repo = os.environ.get('GITHUB_REPOSITORY')  # e.g. Quem332/Regime-Lookout
+    if not repo:
+        return False
+    url = f'https://raw.githubusercontent.com/{repo}/data/public/data/intraday_latest.json'
+    try:
+        with urllib.request.urlopen(url, timeout=20) as r:
+            data = r.read()
+        if not data or len(data) < 20:
+            return False
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'wb') as f:
+            f.write(data)
+        print('[intraday] reused previous intraday_latest.json from data branch')
+        return True
+    except Exception as e:
+        print(f'[intraday] failed to reuse previous file: {e}')
+        return False
 import datetime
 from zoneinfo import ZoneInfo
 

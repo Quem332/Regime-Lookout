@@ -1,224 +1,916 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  computeProbabilitiesSpec,
+  computeReliabilityCSpec,
+  computeRegime7Spec,
+  computeTodayScoreSpec,
+} from "../core/engine.daily";
+import { buildReasoningTags } from "../core/tags";
 import { normalizeLatest } from "../core/normalize.latest";
-import { logger as defaultLogger } from "../core/logger";
+import { upperTriangleAvgCorrMock } from "../core/mock";
+import { logger } from "../core/logger";
+import { idbGet, idbSet } from "../storage/idb";
 
-function baseUrl() {
-  try {
-    const b = (import.meta && import.meta.env && import.meta.env.BASE_URL) || "/";
-    return b.endsWith("/") ? b : `${b}/`;
-  } catch {
-    return "/";
-  }
+/**
+ * Mobile-only data source:
+ *  - public/data/daily_latest.json     (EOD / on-push)
+ *  - public/data/intraday_latest.json  (market hours)
+ *  - (fallback) public/data/latest.json (legacy single-file)
+ *  - public/data/calendar.json (optional; used to temporarily increase refresh frequency around events)
+ *
+ * NOTE: We always add a cache-busting query param + request no-store to avoid stale SW/HTTP caches.
+ */
+
+// NOTE:
+// - import.meta.env.BASE_URL is usually a PATH (e.g. "/Regime-Lookout/") in production.
+// - new URL(relative, base) requires an *absolute* base, otherwise browsers throw
+//   "Failed to construct 'URL': Invalid base URL".
+// So we first anchor BASE_URL to window.location.origin.
+const APP_BASE = import.meta.env.BASE_URL ?? "/";
+const ABS_BASE = new URL(APP_BASE, document.baseURI).toString();
+
+const DAILY_URL = new URL("data/daily_latest.json", ABS_BASE).toString();
+const INTRADAY_URL = new URL("data/intraday_latest.json", ABS_BASE).toString();
+const LEGACY_LATEST_URL = new URL("data/latest.json", ABS_BASE).toString();
+const CAL_URL = new URL("data/calendar.json", ABS_BASE).toString();
+
+// Display latency buckets (minutes)
+function latencyTone(latencyMin) {
+  if (latencyMin == null || !Number.isFinite(latencyMin)) return { tone: "neutral", label: "DATA --:--" };
+  if (latencyMin <= 10) return { tone: "good", label: `DATA ${latencyMin}m` };
+  if (latencyMin <= 20) return { tone: "warn", label: `DATA ${latencyMin}m` };
+  if (latencyMin <= 30) return { tone: "bad", label: `DATA ${latencyMin}m` };
+  return { tone: "bad", label: `DATA ${latencyMin}m+` };
 }
 
-// Prefer same-origin `/data/*` but fall back to the `data` branch on GitHub.
-// This prevents intraday (5m) updates from triggering Pages rebuilds.
-function guessRawDataBase() {
+function toDateSafe(x) {
   try {
-    if (typeof window === "undefined") return null;
-    const host = window.location.hostname || "";
-    if (!host.endsWith(".github.io")) return null;
-    const owner = host.split(".")[0];
-    const parts = (window.location.pathname || "").split("/").filter(Boolean);
-    const repo = parts[0];
-    if (!owner || !repo) return null;
-    // data branch hosts `public/data/*`.
-    return `https://raw.githubusercontent.com/${owner}/${repo}/data/public/data/`;
+    const d = new Date(x);
+    return Number.isFinite(d.getTime()) ? d : null;
   } catch {
     return null;
   }
 }
 
-function withTs(url) {
-  const u = String(url);
-  const sep = u.includes("?") ? "&" : "?";
-  return `${u}${sep}ts=${Date.now()}`;
-}
 
-async function fetchJson(url) {
-  const res = await fetch(withTs(url), { cache: "no-store" });
-  if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-  return await res.json();
-}
+async function fetchJson(url, { timeoutMs = 12_000, retries = 2 } = {}) {
+  const attemptOnce = async (attempt) => {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    const started = performance.now();
+    try {
+      logger.debug("net.fetch_start", { url, attempt, timeoutMs });
+      const res = await fetch(url, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+        signal: ctrl.signal,
+      });
+      const text = await res.text();
+      const size = text?.length ?? 0;
 
-async function fetchJsonWithFallback(path, log = console) {
-  const b = baseUrl();
-  const envBase = (import.meta && import.meta.env && import.meta.env.VITE_DATA_BASE_URL) || "";
-  const raw = guessRawDataBase();
+      let data;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        data = { _nonJson: true, text: text?.slice(0, 5000) };
+      }
 
-  const candidates = [];
-  // 1) same-origin (works if you ship data with dist)
-  candidates.push(`${b}data/${path}`);
-  // 2) explicit override
-  if (typeof envBase === "string" && envBase.trim()) {
-    const eb = envBase.endsWith("/") ? envBase : `${envBase}/`;
-    candidates.push(`${eb}${path}`);
-  }
-  // 3) GH raw data branch
-  if (raw) candidates.push(`${raw}${path}`);
+      if (!res.ok) {
+        const msg = data?.detail ? String(data.detail) : `HTTP ${res.status}`;
+        throw new Error(`${msg} @ ${url}`);
+      }
+
+      logger.debug("net.fetch_ok", {
+        url,
+        attempt,
+        ms: Math.round(performance.now() - started),
+        bytes: size,
+      });
+      return data;
+    } finally {
+      clearTimeout(t);
+    }
+  };
 
   let lastErr = null;
-  for (const u of Array.from(new Set(candidates))) {
+  for (let attempt = 1; attempt <= Math.max(1, retries); attempt++) {
     try {
-      const json = await fetchJson(u);
-      log?.info?.("[MRI] fetched", path, "from", u);
-      return json;
+      return await attemptOnce(attempt);
     } catch (e) {
       lastErr = e;
-      log?.warn?.("[MRI] fetch failed", path, "from", u, String(e?.message || e));
+      const msg = e?.name === "AbortError" ? "timeout_abort" : "fetch_error";
+      logger.warn("net.fetch_failed", { url, attempt, message: e?.message ?? String(e), kind: msg });
+
+      // small backoff (attempt 1 -> 250ms, attempt 2 -> 600ms)
+      const backoff = attempt === 1 ? 250 : 600;
+      await new Promise((r) => setTimeout(r, backoff));
     }
   }
-  throw lastErr || new Error(`Failed to fetch ${path}`);
+  throw lastErr ?? new Error(`fetch failed @ ${url}`);
 }
 
-function safeStr(v, d = null) {
-  if (v == null) return d;
-  const s = String(v);
-  return s.length ? s : d;
+function num(x, fallback = 0) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : fallback;
 }
 
-function safeNum(v, d = null) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : d;
+// Event calendar: { "events":[{"date":"YYYY-MM-DD","time":"HH:MM","name":"CPI"}] }
+function parseCalendar(cal) {
+  const events = Array.isArray(cal?.events) ? cal.events : [];
+  return events
+    .map((e) => ({
+      name: String(e?.name || "").trim() || "Event",
+      date: String(e?.date || "").trim(),
+      time: String(e?.time || "").trim(),
+    }))
+    .filter((e) => /^\d{4}-\d{2}-\d{2}$/.test(e.date) && /^\d{2}:\d{2}$/.test(e.time));
 }
 
-function pickFirst(...vals) {
-  for (const v of vals) if (v !== undefined && v !== null) return v;
-  return null;
+function isInEventWindow(now, events, windowMin = 15) {
+  // Interpret date+time in US/Eastern because the original policy is ET-based.
+  // We avoid heavy TZ libs and approximate by using the embedded asOf in latest.json if provided.
+  // If your latest.json includes tz info, this still behaves safely (windowing by local Date parsing).
+  const wms = windowMin * 60_000;
+  for (const e of events) {
+    // Parse as if it's local; for exact ET, the Actions script should also include `eventWindowActive`.
+    const dt = toDateSafe(`${e.date}T${e.time}:00`);
+    if (!dt) continue;
+    const diff = Math.abs(now.getTime() - dt.getTime());
+    if (diff <= wms) return { active: true, event: e, diffMs: diff };
+  }
+  return { active: false, event: null, diffMs: null };
 }
 
-export function useMRIState({ pollMs = 15000, logger = defaultLogger } = {}) {
-  const [latest, setLatest] = useState(null);
-  const [error, setError] = useState(null);
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  const [lastOkAtMs, setLastOkAtMs] = useState(null);
 
-  const timerRef = useRef(null);
-  const mountedRef = useRef(false);
+function isMarketOpenET(now) {
+  // US/Eastern regular hours: 09:30 - 16:00 ET, Mon-Fri
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(now);
+    const get = (type) => parts.find((p) => p.type === type)?.value;
+    const wd = get("weekday") || "";
+    if (wd === "Sat" || wd === "Sun") return false;
+    const h = Number(get("hour"));
+    const m = Number(get("minute"));
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return false;
+    const mins = h * 60 + m;
+    return mins >= (9 * 60 + 30) && mins < (16 * 60);
+  } catch {
+    return false;
+  }
+}
 
-  const refreshLatest = useCallback(async () => {
-    setError(null);
+function getTZOffsetMinutes(date, timeZone) {
+  const utcDate = new Date(date.toLocaleString("en-US", { timeZone: "UTC" }));
+  const tzDate = new Date(date.toLocaleString("en-US", { timeZone }));
+  return (utcDate - tzDate) / 60000;
+}
 
-    try {
-      // Prefer latest.json (one-file schema), but fall back gracefully.
-      let obj = null;
-      try {
-        obj = await fetchJsonWithFallback("latest.json", logger);
-      } catch {
-        obj = null;
-      }
+function makeDateInTimeZone({ year, month, day, hour, minute, timeZone }) {
+  const guessUtc = new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0));
+  const off1 = getTZOffsetMinutes(guessUtc, timeZone);
+  const pass1 = new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0) + off1 * 60_000);
+  const off2 = getTZOffsetMinutes(pass1, timeZone);
+  return new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0) + off2 * 60_000);
+}
 
-      if (!obj) {
-        const [daily, intraday] = await Promise.allSettled([
-          fetchJsonWithFallback("daily_latest.json", logger),
-          fetchJsonWithFallback("intraday_latest.json", logger),
-        ]);
-        obj = {
-          schema: "fallback",
-          daily: daily.status === "fulfilled" ? daily.value : null,
-          intraday: intraday.status === "fulfilled" ? intraday.value : null,
-          meta: {
-            fetchedAt: new Date().toISOString(),
-            asOf: pickFirst(
-              daily.status === "fulfilled" ? daily.value?.meta?.asOf : null,
-              intraday.status === "fulfilled" ? intraday.value?.meta?.asOf : null
-            ),
-          },
-        };
-      }
+function getETParts(date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    weekday: "short",
+    hour12: false,
+  }).formatToParts(date);
+  const out = {};
+  for (const p of parts) {
+    if (p.type !== "literal") out[p.type] = p.value;
+  }
+  return {
+    year: Number(out.year),
+    month: Number(out.month),
+    day: Number(out.day),
+    hour: Number(out.hour),
+    minute: Number(out.minute),
+    second: Number(out.second),
+    weekday: out.weekday,
+  };
+}
 
-      // Normalize to one internal model.
-      const norm = normalizeLatest(obj || {});
-      if (!mountedRef.current) return;
-      setLatest(norm);
-      logger?.info?.("mri.refresh_ok", { asOf: norm?.meta?.asOf || null, schema: norm?.meta?.schema || null });
-    } catch (e) {
-      if (!mountedRef.current) return;
-      setError(e);
-      logger?.warn?.("mri.refresh_fail", { msg: String(e?.message || e) });
+function etDateKey(date) {
+  const p = getETParts(date);
+  return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+}
+
+
+function nthWeekdayOfMonth(year, month /*1-12*/, weekday /*0=Sun..6*/, n /*1..*/ ) {
+  const first = new Date(Date.UTC(year, month - 1, 1));
+  const firstW = first.getUTCDay();
+  const delta = (weekday - firstW + 7) % 7;
+  const day = 1 + delta + (n - 1) * 7;
+  return day;
+}
+
+function lastWeekdayOfMonth(year, month /*1-12*/, weekday /*0=Sun..6*/) {
+  const last = new Date(Date.UTC(year, month, 0)); // last day of month
+  const lastW = last.getUTCDay();
+  const delta = (lastW - weekday + 7) % 7;
+  return last.getUTCDate() - delta;
+}
+
+// Anonymous Gregorian algorithm for Easter (UTC date)
+function easterSundayUTC(year) {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31); // 3=Mar, 4=Apr
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return { month, day };
+}
+
+// Minimal NYSE-holiday approximation: covers most closures (no early closes).
+function isNyseHolidayET(dateKey /*YYYY-MM-DD*/) {
+  if (!dateKey) return false;
+  const [Y, M, D] = dateKey.split("-").map((x) => Number(x));
+  if (!Y || !M || !D) return false;
+
+  // Weekend handled elsewhere, but keep safe.
+  const dow = new Date(Date.UTC(Y, M - 1, D)).getUTCDay();
+  if (dow === 0 || dow === 6) return false;
+
+  // Helper: observed fixed holiday (Sat -> Fri, Sun -> Mon)
+  const isObservedFixed = (month, day) => {
+    const dt = new Date(Date.UTC(Y, month - 1, day));
+    const w = dt.getUTCDay();
+    let obs = { month, day };
+    if (w === 6) {
+      // Saturday -> Friday
+      const prev = new Date(Date.UTC(Y, month - 1, day - 1));
+      obs = { month: prev.getUTCMonth() + 1, day: prev.getUTCDate() };
+    } else if (w === 0) {
+      // Sunday -> Monday
+      const next = new Date(Date.UTC(Y, month - 1, day + 1));
+      obs = { month: next.getUTCMonth() + 1, day: next.getUTCDate() };
     }
-  }, [logger]);
+    return obs.month === M && obs.day === D;
+  };
 
-  // Poll loop
+  // New Year's Day (Jan 1)
+  if (isObservedFixed(1, 1)) return true;
+
+  // Martin Luther King Jr. Day: 3rd Monday in Jan
+  if (M === 1 && D === nthWeekdayOfMonth(Y, 1, 1, 3)) return true;
+
+  // Presidents' Day: 3rd Monday in Feb
+  if (M === 2 && D === nthWeekdayOfMonth(Y, 2, 1, 3)) return true;
+
+  // Good Friday: 2 days before Easter Sunday
+  const easter = easterSundayUTC(Y);
+  const easterDt = new Date(Date.UTC(Y, easter.month - 1, easter.day));
+  const goodFriday = new Date(easterDt.getTime() - 2 * 24 * 3600 * 1000);
+  if (M === goodFriday.getUTCMonth() + 1 && D === goodFriday.getUTCDate()) return true;
+
+  // Memorial Day: last Monday in May
+  if (M === 5 && D === lastWeekdayOfMonth(Y, 5, 1)) return true;
+
+  // Juneteenth: June 19 (observed)
+  if (isObservedFixed(6, 19)) return true;
+
+  // Independence Day: July 4 (observed)
+  if (isObservedFixed(7, 4)) return true;
+
+  // Labor Day: 1st Monday in Sep
+  if (M === 9 && D === nthWeekdayOfMonth(Y, 9, 1, 1)) return true;
+
+  // Thanksgiving: 4th Thursday in Nov
+  if (M === 11 && D === nthWeekdayOfMonth(Y, 11, 4, 4)) return true;
+
+  // Christmas: Dec 25 (observed)
+  if (isObservedFixed(12, 25)) return true;
+
+  return false;
+}
+
+
+function computeMarketClock(now) {
+  // Regular hours (ET): 09:30 - 16:00
+  const etNow = makeDateInTimeZone(now, "America/New_York");
+  const y = etNow.getFullYear();
+  const M = etNow.getMonth() + 1;
+  const D = etNow.getDate();
+  const dateKey = `${String(y).padStart(4, "0")}-${String(M).padStart(2, "0")}-${String(D).padStart(2, "0")}`;
+
+  const day = etNow.getDay(); // 0=Sun..6
+  const isWeekend = day === 0 || day === 6;
+  const isHoliday = isNyseHolidayET(dateKey);
+
+  const minutes = etNow.getHours() * 60 + etNow.getMinutes();
+  const openMin = 9 * 60 + 30;
+  const closeMin = 16 * 60;
+
+  let phase = "CLOSED";
+  if (!isWeekend && !isHoliday) {
+    if (minutes >= openMin && minutes < closeMin) phase = "OPEN";
+    else if (minutes < openMin) phase = "PREMARKET";
+    else phase = "CLOSED";
+  } else {
+    phase = "CLOSED";
+  }
+
+  // Find next session dateKey (skip weekends + holiday)
+  const nextSessionDateKey = () => {
+    let dt = new Date(Date.UTC(y, M - 1, D, 12, 0, 0)); // noon UTC as anchor
+    for (let i = 0; i < 15; i++) {
+      dt = new Date(dt.getTime() + 24 * 3600 * 1000);
+      const yy = dt.getUTCFullYear();
+      const mm = dt.getUTCMonth() + 1;
+      const dd = dt.getUTCDate();
+      const dk = `${String(yy).padStart(4, "0")}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+      const dow = new Date(Date.UTC(yy, mm - 1, dd)).getUTCDay();
+      const weekend = dow === 0 || dow === 6;
+      if (!weekend && !isNyseHolidayET(dk)) return dk;
+    }
+    return null;
+  };
+
+  let secondsToOpen = null;
+  let secondsToClose = null;
+  let nextKind = "OPEN";
+  let secondsToNext = null;
+
+  if (phase === "OPEN") {
+    // time to today's close
+    const closeET = makeDateInTimeZone(new Date(now), "America/New_York");
+    closeET.setHours(16, 0, 0, 0);
+    secondsToClose = Math.max(0, Math.floor((closeET.getTime() - etNow.getTime()) / 1000));
+    nextKind = "CLOSE";
+    secondsToNext = secondsToClose;
+  } else {
+    // time to next open (today if premarket, else next session day)
+    let targetKey = dateKey;
+    if (phase !== "PREMARKET") {
+      const nk = nextSessionDateKey();
+      if (nk) targetKey = nk;
+    }
+    // build target 09:30 ET
+    const [ty, tm, td] = targetKey.split("-").map((x) => Number(x));
+    const openET = makeDateInTimeZone(new Date(Date.UTC(ty, tm - 1, td, 14, 30, 0)), "America/New_York"); // 09:30 ET approx
+    // Fix: ensure openET has 09:30 in ET
+    openET.setFullYear(ty, tm - 1, td);
+    openET.setHours(9, 30, 0, 0);
+
+    secondsToOpen = Math.max(0, Math.floor((openET.getTime() - etNow.getTime()) / 1000));
+    nextKind = "OPEN";
+    secondsToNext = secondsToOpen;
+  }
+
+  const minutesSinceOpen =
+    phase === "OPEN" ? Math.max(0, Math.floor((minutes - openMin))) : null;
+
+  return {
+    phase,
+    isHoliday,
+    dateKey,
+    secondsToOpen,
+    secondsToClose,
+    nextKind, // "OPEN" | "CLOSE"
+    secondsToNext,
+    minutesSinceOpen,
+  };
+}
+
+function formatHMS(totalSec) {
+  const s = Math.max(0, Math.floor(totalSec));
+  const hh = String(Math.floor(s / 3600)).padStart(2, "0");
+  const mm = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
+  const ss = String(s % 60).padStart(2, "0");
+  return `${hh}:${mm}:${ss}`;
+}
+
+
+
+
+function computeNextHalfHour(now) {
+  const d = new Date(now.getTime());
+  d.setSeconds(0, 0);
+  const m = d.getMinutes();
+  const nextM = m < 30 ? 30 : 60;
+  if (nextM === 60) {
+    d.setHours(d.getHours() + 1);
+    d.setMinutes(0);
+  } else {
+    d.setMinutes(30);
+  }
+  return d;
+}
+
+export function useMRIState() {
+  const [daily, setDaily] = useState(null);
+  const [intraday, setIntraday] = useState(null);
+  const [status, setStatus] = useState(null);
+  const latestRef = useRef(null); // last latest.json payload
+  const calRef = useRef({ events: [], loaded: false });
+  const healthRef = useRef({ lastOkAt: null, lastError: null, lastErrorAt: null, schema: null });
+  const buildDailyFromFeatures = ({ featuresZ, meta }) => {
+    const started = performance.now();
+    const V = [featuresZ.x, featuresZ.y, featuresZ.rates, featuresZ.usd, featuresZ.vix, featuresZ.goldFear].map((v) => num(v, 0));
+
+    const isAllZeroV = V.every((v) => v === 0);
+    if (isAllZeroV && daily && daily?.meta?.dataHealthLevel !== "MOCK") {
+      return;
+    }
+
+    const latencyMin = meta?.latencyMin ?? meta?.latencyMinutes ?? meta?.latency ?? null;
+const healthLevel = meta?.dataHealth?.level ?? meta?.dataHealthLevel ?? null;
+
+// Data considered OK if not stale and not explicitly marked bad.
+const dataOk =
+  Number.isFinite(latencyMin) ? latencyMin <= 30 : true;
+const dataOkFinal =
+  dataOk && !["BAD", "DOWN", "ERROR"].includes(String(healthLevel ?? "").toUpperCase());
+    const corrAvgDaily = intraday?.corrAvg ?? meta?.intraday?.corrAvg ?? upperTriangleAvgCorrMock();
+
+const corrSurgeDaily = Boolean(intraday?.corrSurge ?? meta?.intraday?.corrSurge ?? false);
+const zShortDaily = Number.isFinite(intraday?.zShort) ? intraday.zShort : Number.isFinite(meta?.intraday?.zShort) ? meta.intraday.zShort : 0;
+
+
+    const { probs, passedKeys } = computeProbabilitiesSpec(V);
+    const rel = computeReliabilityCSpec({ dataOk: dataOkFinal, corrAvg: corrAvgDaily, corrSurge: corrSurgeDaily, zShort: zShortDaily, V, probs });
+    const Cfinal = rel.C;
+    const regime7 = computeRegime7Spec({ passedKeys, Cfinal, V });
+    const scorePack = computeTodayScoreSpec({ probs, Cfinal, corrAvg: corrAvgDaily, V, regime7 });
+
+    const topEntry = Object.entries(probs).sort((a, b) => b[1] - a[1])[0];
+    const topK = topEntry ? Number(topEntry[0]) : null;
+
+    const tags = buildReasoningTags({ V, corrAvg: corrAvgDaily, corrSurge: corrSurgeDaily, zShort: zShortDaily, probs, Cfinal });
+
+    
+    // Intraday scenario tracking: reuse daily factors but "y" tracks today's zShort so
+    // the scenario/probabilities can meaningfully differ intraday vs daily.
+    const dailyV = Array.isArray(latest?.daily?.V) ? latest.daily.V : [0, 0, 0, 0, 0, 0];
+    const vTrack = [...dailyV];
+    if (typeof zShortVal === "number" && Number.isFinite(zShortVal)) {
+      const zc = Math.max(-3, Math.min(3, zShortVal));
+      vTrack[1] = zc;
+    }
+    const { probs: probsTrack, passedKeys: passedKeysTrack } = computeProbabilitiesSpec(vTrack);
+    const intradayDataOk = !["MOCK", "STALE", "ERROR", "NONE"].includes(String(dataHealthLevel || "").toUpperCase());
+    const relTrack = computeReliabilityCSpec({
+      dataOk: intradayDataOk,
+      zShort: typeof zShortVal === "number" && Number.isFinite(zShortVal) ? zShortVal : 0,
+      corrAvg: typeof corrAvg === "number" && Number.isFinite(corrAvg) ? corrAvg : 0.5,
+      corrSurge: Boolean(i?.corrSurge),
+      eventWindowActive: Boolean(latest?.eventWindow?.active),
+    });
+    const CfinalTrack = relTrack?.Cfinal ?? 0;
+    const regime7Track = computeRegime7Spec(passedKeysTrack, CfinalTrack, vTrack);
+    const tagsTrack = buildReasoningTags({ t, V: vTrack, rel: relTrack, probs: probsTrack, isIntraday: true });
+    const scenarioPack = {
+      score: latest?.daily?.score ?? null,
+      Cfinal: CfinalTrack,
+      regime7: regime7Track,
+      topK: 1,
+      probs: probsTrack,
+      tags: tagsTrack,
+      V: vTrack,
+      meta: { source: "intradayTracking", inputsRaw: null },
+    };
+
+const snapshot = {
+      scenario: scenarioPack,
+      // core outputs
+      V,
+      probs,
+      passedKeys,
+      topK,
+      topProb: scorePack.pTop,
+      Cfinal,
+      caps: rel.caps,
+      regime7,
+      // UI-friendly fields (legacy UIs expect these at top-level)
+      asOf: meta?.asOf ?? null,
+      regime: (regime7 ?? (topK != null ? String(topK) : null)),
+      score: scorePack.score,
+      pEff: scorePack.pEff,
+      penaltyApplied: scorePack.penaltyApplied,
+      flags: scorePack.flags,
+
+      // convenience fields for UI/export (avoid deep meta chains)
+      asOf: meta?.asOf ?? null,
+      lastTradingDay: meta?.lastTradingDay ?? null,
+      fetchedAt: meta?.fetchedAt ?? null,
+      source: meta?.source ?? null,
+      dataHealthLevel: meta?.dataHealthLevel ?? null,
+
+      // diagnostics
+      corrAvgDaily,
+      tags,
+      meta,
+
+      ts: new Date(),
+    };
+
+    setDaily(snapshot);
+
+    idbSet("dailyResult", { daily: snapshot, savedAt: new Date().toISOString() }).catch((e) =>
+      logger.warn("idb.daily_write_failed", { message: e?.message })
+    );
+
+
+// Self-checks (helps catch corrupted data / engine regressions)
+try {
+  const sumP = Object.values(probs).reduce((a,b)=>a+(typeof b==="number"?b:0),0);
+  if (!Number.isFinite(sumP) || Math.abs(sumP - 1) > 0.02) {
+    logger.warn("engine.prob_sum_suspicious", { sumP, probs });
+  }
+  if (!Number.isFinite(Cfinal) || Cfinal < 0 || Cfinal > 100) {
+    logger.warn("engine.confidence_out_of_range", { Cfinal, caps: rel.caps });
+  }
+} catch (e) {
+  logger.warn("engine.selfcheck_failed", { message: e?.message });
+}
+    logger.debug("state.daily_refresh_ok", {
+      ms: Math.round(performance.now() - started),
+      topK,
+      score: scorePack.score,
+      Cfinal,
+      regime7,
+      asOf: meta?.asOf,
+      source: meta?.source,
+    });
+  };
+
+  const setIntradayFromLatest = (latest) => {
+    const i = latest?.intraday || null;
+    if (!i) return;
+    const zShortVal = i?.zShort;
+    const corrAvg = i?.corrAvg;
+
+    const alert =
+      Boolean(i?.corrSurge) || (typeof zShortVal === "number" && Number.isFinite(zShortVal) && Math.abs(zShortVal) > 2.5);
+
+    const snapshot = {
+      scenario: scenarioPack,
+      zShort: typeof zShortVal === "number" ? zShortVal : null,
+      zShortPct: i?.zShortPct ?? null,
+      corrAvg: typeof corrAvg === "number" ? corrAvg : null,
+      corrSurge: Boolean(i?.corrSurge),
+      intervalUsed: i?.intervalUsed ?? null,
+      prices: i?.prices ?? null,
+      meta: { cached: Boolean(latest?.cached), latencyMs: latest?.latencyMs ?? null, dataHealthLevel: latest?.dataHealth?.level ?? null },
+      dataHealthLevel: latest?.dataHealth?.level ?? null,
+      alert,
+      ts: new Date(),
+    };
+
+    setIntraday(snapshot);
+
+    idbSet("intradayCache", { intraday: snapshot, savedAt: new Date().toISOString() }).catch((e) =>
+      logger.warn("idb.intraday_write_failed", { message: e?.message })
+    );
+  };
+
+  const refreshLatest = async () => {
+    const started = performance.now();
+    const bust = `?t=${Date.now()}`;
+
+    // Prefer split files (daily + intraday). If not present, fall back to legacy single-file.
+    const [daily, intraday] = await Promise.all([
+      fetchJson(`${DAILY_URL}${bust}`, { timeoutMs: 15_000 }).catch(() => null),
+      fetchJson(`${INTRADAY_URL}${bust}`, { timeoutMs: 15_000 }).catch(() => null),
+    ]);
+
+    const raw = daily || intraday
+      ? {
+          schemaVersion: daily?.schemaVersion || intraday?.schemaVersion || "2.3",
+          asOf: daily?.asOf || intraday?.asOf || null,
+          lastTradingDay: daily?.lastTradingDay || null,
+          // Daily inputs
+          featuresZ: daily?.featuresZ || null,
+          periods: daily?.periods || null,
+          // Intraday inputs
+          intraday: intraday?.intraday || null,
+          // Meta
+          dataHealth: daily?.dataHealth || intraday?.dataHealth || null,
+          latencyMin:
+            typeof intraday?.latencyMin === "number"
+              ? intraday.latencyMin
+              : typeof daily?.latencyMin === "number"
+                ? daily.latencyMin
+                : null,
+          fetchedAt: intraday?.fetchedAt || daily?.fetchedAt || null,
+          _sources: { daily: !!daily, intraday: !!intraday },
+        }
+      : await fetchJson(`${LEGACY_LATEST_URL}${bust}`, { timeoutMs: 15_000 });
+
+    const norm = normalizeLatest(raw);
+    if (!norm.ok) {
+      const errMsg = norm.error || "data files invalid";
+      healthRef.current = {
+        ...healthRef.current,
+        lastError: errMsg,
+        lastErrorAt: new Date().toISOString(),
+        schema: norm.schema ?? null,
+      };
+      throw new Error(errMsg);
+    }
+
+    const latest = norm.latest;
+    latestRef.current = latest;
+
+    // Mark OK
+    healthRef.current = {
+      ...healthRef.current,
+      lastOkAt: new Date().toISOString(),
+      lastError: null,
+      lastErrorAt: null,
+      schema: norm.schema ?? null,
+    };
+
+    // intraday first (so daily can use corrAvg if present)
+    setIntradayFromLatest(latest);
+
+    buildDailyFromFeatures({
+      featuresZ: latest.featuresZ,
+      meta: {
+        source: latest?.dataHealth?.source ?? "actions",
+        dataHealthLevel: latest?.dataHealth?.level ?? null,
+        asOf: latest?.asOf ?? null,
+        lastTradingDay: latest?.lastTradingDay ?? null,
+        latencyMs: latest?.latencyMs ?? null,
+        latencyMin: latest?.latencyMin ?? null,
+        cached: Boolean(latest?.cached),
+        intraday: latest?.intraday ?? null,
+        eventWindowActive: Boolean(latest?.eventWindowActive),
+        schema: norm?.schema ?? null,
+        fetchedAt: new Date().toISOString(),
+      },
+    });
+
+    logger.info("data.latest_ok", { ms: Math.round(performance.now() - started), asOf: latest?.asOf });
+    return latest;
+  };
+
+  const refreshCalendar = async () => {
+    try {
+      const bust = `?t=${Date.now()}`;
+      const cal = await fetchJson(`${CAL_URL}${bust}`, { timeoutMs: 10_000 });
+      calRef.current = { events: parseCalendar(cal), loaded: true };
+      return calRef.current.events;
+    } catch (e) {
+      // Calendar is optional. Keep silent unless debug.
+      calRef.current = { events: [], loaded: false };
+      return [];
+    }
+  };
+
+  // Stable interval helper (prevents stale closures + duplicated intervals)
+  function useStableInterval(callback, delayMs, enabled = true) {
+    const cbRef = useRef(callback);
+    cbRef.current = callback;
+
+    useEffect(() => {
+      if (!enabled || delayMs == null) return;
+      let id = null;
+
+      const tick = () => cbRef.current && cbRef.current();
+      id = setInterval(tick, delayMs);
+
+      return () => {
+        if (id) clearInterval(id);
+      };
+    }, [delayMs, enabled]);
+  }
+
+  // 1) cold-start from cache + initial fetch
   useEffect(() => {
-    mountedRef.current = true;
-    refreshLatest();
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = setInterval(() => {
-      refreshLatest();
-    }, Math.max(5000, Number(pollMs) || 15000));
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const cachedDaily = await idbGet("dailyResult");
+        if (!cancelled && cachedDaily?.daily) setDaily(cachedDaily.daily);
+      } catch {}
+
+      try {
+        const cachedIntra = await idbGet("intradayCache");
+        if (!cancelled && cachedIntra?.intraday) setIntraday(cachedIntra.intraday);
+      } catch {}
+
+      await refreshCalendar();
+      try {
+        await refreshLatest();
+      } catch (e) {
+        logger.warn("data.latest_failed", { message: e?.message });
+      }
+    })();
+
+    const onVis = () => {
+      // Refresh immediately when user comes back (prevents "stuck old data" feeling)
+      if (document.visibilityState === "visible") {
+        refreshLatest().catch(() => {});
+        refreshCalendar().catch(() => {});
+      }
+    };
+    window.addEventListener("visibilitychange", onVis);
 
     return () => {
-      mountedRef.current = false;
-      if (timerRef.current) clearInterval(timerRef.current);
-      timerRef.current = null;
+      cancelled = true;
+      window.removeEventListener("visibilitychange", onVis);
     };
-  }, [refreshLatest, pollMs]);
-
-  // Local clock tick (keeps UI timers moving even if data doesn't refresh)
-  useEffect(() => {
-    const id = setInterval(() => setNowMs(Date.now()), 1000);
-    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Derive daily/intraday/period/status
-  const raw = latest?.raw || {};
-  const daily = raw?.daily || latest?.daily || null;
-  const intraday = raw?.intraday || latest?.intraday || null;
+  // 2) polling policy:
+  // - normal: every 5 minutes (cheap fetch of a small json)
+  // - during event window: every 2 minutes (to catch 15-min updates)
+  // - when hidden: browser will naturally throttle intervals; we also refresh on visibilitychange
+  const [pollMs, setPollMs] = useState(300_000);
 
-  // Period packs: expect keys like 20D/60D/252D
-  const period = useMemo(() => {
-    const p = raw?.periods || latest?.periods || null;
-    if (!p || typeof p !== "object") return {};
-    return p;
-  }, [raw?.periods, latest?.periods]);
+  useStableInterval(
+    async () => {
+      try {
+        const now = new Date();
+        const events = calRef.current.events || [];
+        const latest = latestRef.current;
+        const eventActive =
+          Boolean(latest?.eventWindowActive) || isInEventWindow(now, events, 15).active;
 
-  const status = useMemo(() => {
-    const st = raw?.status || latest?.status || {};
-    const marketOpen = Boolean(pickFirst(st?.marketOpen, raw?.marketOpen, latest?.marketOpen, false));
+        const desired = eventActive ? 120_000 : 300_000;
+        if (desired !== pollMs) { logger.info('poll.interval_change',{from: pollMs, to: desired, eventActive}); setPollMs(desired); }
 
-    const timers = {
-      countdown: safeStr(pickFirst(st?.timers?.countdown, raw?.timers?.countdown), "--:--"),
-      nextUpdateInSec: safeNum(pickFirst(st?.timers?.nextUpdateInSec, raw?.timers?.nextUpdateInSec), null),
-      pollMs: Number(pollMs) || 15000,
-    };
+        await refreshLatest();
+      } catch (e) {
+        logger.debug("poll.latest_failed", { message: e?.message });
+      }
+    },
+    pollMs,
+    true
+  );
 
-    // Derived timers (client-side)
-    const nextSyncInSec = (lastOkAtMs && pollMs)
-      ? Math.max(0, Math.floor((pollMs - (nowMs - lastOkAtMs)) / 1000))
+  // 3) UI timer state (for countdown display)
+  const [nowMs, setNowMs] = useState(Date.now());
+  useStableInterval(() => setNowMs(Date.now()), 1000, true);
+
+  const statusComputed = useMemo(() => {
+    const latest = latestRef.current;
+    const meta = daily?.meta || latest?.meta || {};
+
+    const asOfStr = meta?.asOf || latest?.asOf || null;
+    const asOfDate = asOfStr ? toDateSafe(asOfStr) : null;
+    const fetchedAtStr = meta?.fetchedAt || latest?.fetchedAt || null;
+    const fetchedAtDate = fetchedAtStr ? toDateSafe(fetchedAtStr) : null;
+
+    const latencyMin =
+      (meta?.latencyMin ?? latest?.latencyMin) ??
+      (meta?.latencyMs ?? latest?.latencyMs ? Math.round(((meta?.latencyMs ?? latest?.latencyMs) / 60000) * 10) / 10 : null);
+
+    const tonePack = latencyTone(latencyMin);
+
+    const now = new Date(nowMs);
+    const marketClock = computeMarketClock(now);
+
+    const asOfETKey = asOfDate ? etDateKey(asOfDate) : null;
+    const nowETKey = etDateKey(now);
+    const dataIsToday = !!asOfETKey && asOfETKey === nowETKey;
+
+    const scoreLocked =
+      marketClock.phase === "PREMARKET" || (marketClock.phase === "OPEN" && !dataIsToday);
+
+    const scoreLockReason =
+      marketClock.phase === "PREMARKET"
+        ? { kind: "PREMARKET", eta: formatHMS(marketClock.secondsToOpen) }
+        : marketClock.phase === "OPEN" && !dataIsToday
+          ? { kind: "OPEN_WARMUP", minutesSinceOpen: marketClock.minutesSinceOpen ?? null }
+          : null;
+    const marketOpen = marketClock.phase === "OPEN";
+    const eventWindow = marketOpen ? isInEventWindow(now, calRef.current.events || [], 15) : { active: false, event: null, diffMs: null };
+    const secs = marketClock.secondsToNext ?? 0;
+    const countdown = formatHMS(secs)
+
+    // top bar label priority:
+    // 1) fetchedAt (always reflects the *latest fetch attempt* on this device)
+    // 2) asOf (server/data timestamp)
+    // 3) latency bucket
+    const fetchedLabel = fetchedAtDate
+      ? `${String(fetchedAtDate.getHours()).padStart(2, "0")}:${String(fetchedAtDate.getMinutes()).padStart(2, "0")}`
       : null;
-    const syncAgeSec = lastOkAtMs ? Math.max(0, Math.floor((nowMs - lastOkAtMs) / 1000)) : null;
 
-    const timers2 = {
-      ...timers,
-      nextSyncInSec: timers?.nextSyncInSec ?? nextSyncInSec,
-      syncAgeSec: timers?.syncAgeSec ?? syncAgeSec,
+    const asOfLabel = asOfDate
+      ? `${String(asOfDate.getHours()).padStart(2, "0")}:${String(asOfDate.getMinutes()).padStart(2, "0")}`
+      : null;
+
+    const topLabel = fetchedLabel ? `SYNC ${fetchedLabel}` : asOfLabel ? `DATA ${asOfLabel}` : tonePack.label;
+
+    // Health badge: color-only (legacy thresholds)
+// - <=10m: green
+// - <=20m: yellow
+// - <=30m: red
+// - >30m or no reference: black
+    const h = healthRef.current || {};
+    const nowT = now.getTime();
+    const asOfT = asOfDate ? asOfDate.getTime() : null;
+    const refT = asOfT ?? (h?.lastOkAt ? new Date(h.lastOkAt).getTime() : null);
+    const ageMin = refT ? (nowT - refT) / (60 * 1000) : Infinity;
+    const hasNewerError =
+      h?.lastError &&
+      (!h?.lastOkAt ||
+        (h.lastErrorAt &&
+          new Date(h.lastErrorAt).getTime() >
+            new Date(h.lastOkAt).getTime()));
+
+    let healthLabel = "OK";
+    let healthTone = "good";
+
+    if (!Number.isFinite(ageMin)) {
+      healthLabel = hasNewerError ? "FETCH_FAIL" : "NO_DATA";
+      healthTone = "black";
+    } else if (ageMin <= 10) {
+      healthLabel = "OK";
+      healthTone = "good";
+    } else if (ageMin <= 20) {
+      healthLabel = "STALE";
+      healthTone = "warn";
+    } else if (ageMin <= 30) {
+      healthLabel = hasNewerError ? "FETCH_FAIL" : "STALE";
+      healthTone = "bad";
+    } else {
+      healthLabel = hasNewerError ? "FETCH_FAIL" : "STALE";
+      healthTone = "black";
+    }
+
+    // If a newer fetch error exists, do not show green/yellow.
+    if (hasNewerError && (healthTone === "good" || healthTone === "warn")) {
+      healthLabel = "FETCH_FAIL";
+      healthTone = ageMin > 30 ? "black" : "bad";
+    }
+
+    const health = {
+      label: healthLabel,
+      tone: healthTone,
+      ageMin,
+      lastOkAt: h?.lastOkAt ?? null,
+      lastError: h?.lastError ?? null,
+      lastErrorAt: h?.lastErrorAt ?? null,
+      schema: h?.schema ?? null,
     };
-
-    const meta = latest?.meta || {};
-    const health = pickFirst(st?.dataHealth, raw?.dataHealth, null);
 
     return {
-      marketOpen,
-      marketClock: st?.marketClock || null,
-      meta: {
-        asOf: safeStr(meta?.asOf, safeStr(daily?.meta?.asOf, null)),
-        fetchedAt: safeStr(meta?.fetchedAt, null),
-        schema: safeStr(meta?.schema, null),
+      market: {
+        tone: tonePack.tone,
+        label: topLabel,
+        latencyMin,
+        asOf: asOfStr,
+        fetchedAt: fetchedAtStr,
       },
-      dataHealth: health,
-      error: error ? String(error?.message || error) : null,
+      health,
+      timers: {
+        nextUpdateInSec: secs,
+        countdown,
+        nextKind: marketClock.nextKind,
+        pollMs,
+      },
+      marketOpen,
+    marketClock,
+    scoreLocked,
+    scoreLockReason,
+      events: calRef.current.events || [],
+      eventWindow,
     };
-  }, [raw?.status, latest?.status, latest?.meta, daily?.meta, error, pollMs]);
+  }, [daily?.meta, nowMs, pollMs]);
 
-  // Expose back-compat shape expected by pages
+  // Keep status in state for existing UI compatibility
+  useEffect(() => {
+    setStatus(statusComputed);
+  }, [statusComputed]);
+
   return {
+    // Back-compat: expose both top-level and nested "mri" so UI pages can safely read api.mri.*
+    mri: { daily, intraday, status: statusComputed, refreshLatest },
     daily,
     intraday,
-    period,
-    status,
-    raw,
-    meta: latest?.meta || {},
+    status: statusComputed,
     refreshLatest,
+    logger,
   };
 }
