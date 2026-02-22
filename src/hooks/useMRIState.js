@@ -598,7 +598,13 @@ try {
     });
 
     return {
-      score: null,
+      score: computeTodayScoreSpec({
+        probs: probsTrack,
+        Cfinal: CfinalTrack,
+        corrAvg: typeof corrAvg === "number" && Number.isFinite(corrAvg) ? corrAvg : 0.5,
+        V: vTrack,
+        regime7: regime7Track,
+      })?.score ?? null,
       Cfinal: CfinalTrack,
       regime7: regime7Track,
       topK: Number(Object.entries(probsTrack).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 1),

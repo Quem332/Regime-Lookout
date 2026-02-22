@@ -216,7 +216,7 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
       ) : (
         <div className="grid gap-3">
           <Card title={t?.("b2.factors", "Period Breakdown") ?? "Period Breakdown"} subtitle={`${tSafe("en","b2.factorsSub","Factors (6D) + map")} · ${lookback.toUpperCase()}`}>
-            <FactorBars V={viewModel?.V} raw={api?.mri?.inputsRaw ?? api?.mri?.daily?.inputsRaw ?? api?.mri?.meta?.inputsRaw} lang={api?.mri?.lang ?? api?.lang ?? "en"} />
+            <FactorBars V={viewModel?.V} raw={api?.mri?.inputsRaw ?? api?.mri?.daily?.inputsRaw ?? api?.mri?.meta?.inputsRaw}  lang={lang} showIntradayNote={Boolean(api?.mri?.marketOpen) && Boolean(api?.mri?.intraday)} />
           </Card>
 
           <Card title={t?.("ui.quadrant", "Position Map") ?? "Position Map"} subtitle={t?.("quadrant.subtitle", "Growth↔Defense, Inflow↔Outflow") ?? "Growth↔Defense, Inflow↔Outflow"}>

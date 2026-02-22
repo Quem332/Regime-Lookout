@@ -241,7 +241,7 @@ export function PageHome({ api, tab, setTab, t, lang }) {
           ) : null}
 
           <Card title={tSafe(lang, "a2.factors", L("요인 (6D)", "Factors (6D)"))} subtitle={tSafe(lang, "a2.factorsSub", L("z-score + raw", "z-score + raw snapshot"))}>
-            <FactorBars V={daily?.V} raw={api?.mri?.inputsRaw ?? api?.mri?.daily?.inputsRaw ?? api?.mri?.meta?.inputsRaw} lang={api?.mri?.lang ?? api?.lang ?? "en"} />
+            <FactorBars V={daily?.V} raw={api?.mri?.inputsRaw ?? api?.mri?.daily?.inputsRaw ?? api?.mri?.meta?.inputsRaw}  lang={lang} showIntradayNote={Boolean(api?.mri?.marketOpen) && Boolean(api?.mri?.intraday)} />
           </Card>
 
           <Card title={tSafe(lang, "ui.quadrant", L("포지션 맵", "Position Map"))} subtitle={tSafe(lang, "quadrant.subtitle", L("성장↔방어, 유입↔유출", "Growth↔Defense, Inflow↔Outflow"))}>
