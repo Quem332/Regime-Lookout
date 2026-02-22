@@ -46,35 +46,36 @@ jobs:
           set -euo pipefail
 
           rm -rf _data_branch
-          mkdir -p _data_branch
-
           git clone --depth 1 --branch data "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" _data_branch
 
-          (cd _data_branch && git config user.name "github-actions[bot]")
-          (cd _data_branch && git config user.email "41898282+github-actions[bot]@users.noreply.github.com")
+          cd _data_branch
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          mkdir -p _data_branch/public/data
-          cp -f public/data/*.json _data_branch/public/data/ 2>/dev/null || true
+          mkdir -p public/data
+          cp -f ../public/data/*.json public/data/ 2>/dev/null || true
 
-          (cd _data_branch && git add public/data)
-          (cd _data_branch && \
-            if ! git diff --cached --quiet; then \
-              git commit -m "data: refresh all outputs [skip ci]"; \
-              for attempt in 1 2 3; do
-  echo "Push attempt $attempt..."
-  git fetch origin data --depth=50 || true
-  git rebase origin/data || true
-  if git push origin HEAD:data; then
-    echo "Push succeeded."
-    break
-  fi
-  echo "Push rejected; retrying after rebase..."
-  sleep $((attempt*2))
-  if [ "$attempt" = "3" ]; then
-    echo "Push failed after retries."
-    exit 1
-  fi
-done; \
-            else \
-              echo "No changes to commit."; \
-            fi)
+          git add public/data
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "data: refresh all outputs [skip ci]"
+
+          for attempt in 1 2 3; do
+            echo "Push attempt $attempt..."
+            git fetch origin data --depth=50 || true
+            git rebase origin/data || true
+
+            if git push origin HEAD:data; then
+              echo "Push succeeded."
+              exit 0
+            fi
+
+            echo "Push rejected; retrying after rebase..."
+            sleep $((attempt*2))
+          done
+
+          echo "Push failed after retries."
+          exit 1
