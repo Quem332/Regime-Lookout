@@ -22,8 +22,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: update-daily
-  cancel-in-progress: false
+  group: data-branch-publish
+  cancel-in-progress: true
 
 jobs:
   update:
@@ -117,7 +117,21 @@ jobs:
           git add public/data/daily_latest.json
           if ! git diff --cached --quiet; then
             git commit -m "data(daily): refresh daily_latest.json [skip ci]"
-            git push origin data
+            for attempt in 1 2 3; do
+  echo "Push attempt $attempt..."
+  git fetch origin data --depth=50 || true
+  git rebase origin/data || true
+  if git push origin HEAD:data; then
+    echo "Push succeeded."
+    break
+  fi
+  echo "Push rejected; retrying after rebase..."
+  sleep $((attempt*2))
+  if [ "$attempt" = "3" ]; then
+    echo "Push failed after retries."
+    exit 1
+  fi
+done
           else
             echo "No changes to commit."
           fi
