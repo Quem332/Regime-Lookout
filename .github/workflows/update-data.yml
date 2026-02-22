@@ -1,4 +1,4 @@
-name: Rebuild latest.json (Manual)
+name: Update All Data (Manual)
 
 on:
   workflow_dispatch:
@@ -7,43 +7,61 @@ permissions:
   contents: write
 
 concurrency:
-  group: rebuild-latest
+  group: update-all-data
   cancel-in-progress: true
 
 jobs:
-  rebuild:
+  update:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-          cache: "pip"
-          cache-dependency-path: "requirements.txt"
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: 'requirements.txt'
 
       - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Merge latest.json (from existing public/data/*)
-        run: python scripts/update_latest.py
+      - name: Build daily outputs
+        run: node scripts/fetch_daily.js
 
-      - name: Publish latest.json to data branch
+      - name: Build intraday output
+        run: node scripts/fetch_intraday.js
+
+      - name: Publish all outputs to data branch
         shell: bash
         run: |
           set -euo pipefail
-          git clean -fdx
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          rm -rf _data_branch
+          mkdir -p _data_branch
+
           git fetch origin data || true
           if git show-ref --verify --quiet refs/remotes/origin/data; then
-            git checkout -B data origin/data
+            git clone --depth 1 --branch data "https://github.com/${GITHUB_REPOSITORY}.git" _data_branch
           else
-            git checkout --orphan data
-            git rm -rf . || true
+            git clone --depth 1 "https://github.com/${GITHUB_REPOSITORY}.git" _data_branch
+            (cd _data_branch && git checkout --orphan data && git rm -rf . || true)
           fi
-          mkdir -p public/data
-          git checkout main -- public/data/latest.json || true
-          git add public/data/latest.json
-          git diff --cached --quiet || git commit -m "data: rebuild latest.json [skip ci]"
-          git push origin data
+
+          mkdir -p _data_branch/public/data
+          cp -f public/data/*.json _data_branch/public/data/ 2>/dev/null || true
+
+          (cd _data_branch && \
+            git add public/data && \
+            git diff --cached --quiet || git commit -m "data: refresh all outputs [skip ci]")
+
+          (cd _data_branch && git push origin data)

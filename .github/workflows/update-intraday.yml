@@ -2,14 +2,13 @@ name: Update Intraday Data (Market Hours)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
-    paths:
-      - "scripts/**"
-      - "requirements.txt"
-      - ".github/workflows/update-intraday.yml"
+    inputs:
+      force:
+        description: 'Run even if market is closed (for debugging)'
+        required: false
+        default: 'false'
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: '*/5 * * * *'
 
 permissions:
   contents: write
@@ -21,74 +20,97 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: "npm"
+          node-version: '20'
+          cache: 'npm'
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-          cache: "pip"
-          cache-dependency-path: "requirements.txt"
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: 'requirements.txt'
 
       - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Gate — run only during US regular market hours (ET)
+      - name: Gate: decide whether to run (ET)
         id: gate
         shell: bash
         run: |
-          python - <<'PY'
-          import datetime, sys
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import datetime
           from zoneinfo import ZoneInfo
+
+          force = ("${{ github.event.inputs.force }}" or "false").lower() == "true"
           et = ZoneInfo("America/New_York")
           now = datetime.datetime.now(tz=et)
+
           run = True
-          if now.weekday() >= 5:
+          reason = "ok"
+
+          if not force:
+            # Skip weekends
+            if now.weekday() >= 5:
               run = False
-          else:
+              reason = "weekend"
+            else:
               mins = now.hour * 60 + now.minute
-              if mins < (9 * 60 + 30) or mins > (16 * 60):
-                  run = False
-          print(f"gate_run={run} now_et={now.isoformat()}")
-          with open(sys.argv[1], "a", encoding="utf-8") as f:
-              f.write(f"run={'true' if run else 'false'}\n")
-          PY "$GITHUB_OUTPUT"
+              # Regular hours 09:30-16:00 ET
+              if mins < (9*60 + 30) or mins > (16*60):
+                run = False
+                reason = "off_hours"
+
+          print(f"run={'true' if run else 'false'}")
+          print(f"reason={reason}")
+          PY
 
       - name: Stop if gated
         if: steps.gate.outputs.run != 'true'
-        run: echo "Gated. Skipping update." && exit 0
+        run: |
+          echo "Gated: ${{ steps.gate.outputs.reason }}"
+          exit 0
 
       - name: Build intraday_latest.json
         run: node scripts/fetch_intraday.js
 
-      - name: Merge latest.json
-        run: python scripts/update_latest.py
-
-      - name: Publish data to data branch
+      # Publish ONLY the data file. Avoid switching branches in-place.
+      - name: Publish intraday to data branch
         shell: bash
         run: |
           set -euo pipefail
-          git clean -fdx
 
-          git fetch origin data || true
-          if git show-ref --verify --quiet refs/remotes/origin/data; then
-            git checkout -B data origin/data
-          else
-            git checkout --orphan data
-            git rm -rf . || true
+          if [ ! -f public/data/intraday_latest.json ]; then
+            echo "Missing public/data/intraday_latest.json" >&2
+            exit 1
           fi
 
-          mkdir -p public/data
-          git checkout main -- public/data || true
-          git checkout main -- public/data/intraday_latest.json public/data/latest.json || true
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add public/data/intraday_latest.json public/data/latest.json
-          git diff --cached --quiet || git commit -m "data: update intraday/latest [skip ci]"
-          git push origin data
+          rm -rf _data_branch
+          mkdir -p _data_branch
+
+          # Checkout data branch into a separate directory
+          git fetch origin data || true
+          if git show-ref --verify --quiet refs/remotes/origin/data; then
+            git clone --depth 1 --branch data "https://github.com/${GITHUB_REPOSITORY}.git" _data_branch
+          else
+            git clone --depth 1 "https://github.com/${GITHUB_REPOSITORY}.git" _data_branch
+            (cd _data_branch && git checkout --orphan data && git rm -rf . || true)
+          fi
+
+          mkdir -p _data_branch/public/data
+          cp -f public/data/intraday_latest.json _data_branch/public/data/intraday_latest.json
+
+          (cd _data_branch && \
+            git add public/data/intraday_latest.json && \
+            git diff --cached --quiet || git commit -m "data(intraday): refresh intraday_latest.json [skip ci]")
+
+          (cd _data_branch && git push origin data)

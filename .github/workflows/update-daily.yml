@@ -2,15 +2,13 @@ name: Update Daily Data (EOD)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
-    paths:
-      - "scripts/**"
-      - "requirements.txt"
-      - ".github/workflows/update-daily.yml"
-      - ".github/workflows/update-intraday.yml"
+    inputs:
+      force:
+        description: 'Run even if before market close (for debugging)'
+        required: false
+        default: 'false'
   schedule:
-    - cron: "15 * * * *"
+    - cron: '15 * * * *'
 
 permissions:
   contents: write
@@ -22,80 +20,98 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: "npm"
+          node-version: '20'
+          cache: 'npm'
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-          cache: "pip"
-          cache-dependency-path: "requirements.txt"
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: 'requirements.txt'
 
       - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Gate — run only after US market close (ET)
+      - name: Gate: decide whether to run (ET)
         id: gate
         shell: bash
         run: |
-          python - <<'PY'
-          import datetime, sys
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import datetime
           from zoneinfo import ZoneInfo
+
+          force = ("${{ github.event.inputs.force }}" or "false").lower() == "true"
           et = ZoneInfo("America/New_York")
           now = datetime.datetime.now(tz=et)
-          run = False
-          # Weekend: allow anytime
-          if now.weekday() >= 5:
+
+          run = True
+          reason = "ok"
+
+          if not force:
+            # Weekend: allow any time
+            if now.weekday() >= 5:
               run = True
-          # Weekday: allow after 16:15 ET
-          elif (now.hour, now.minute) >= (16, 15):
-              run = True
-          print(f"gate_run={run} now_et={now.isoformat()}")
-          # write output
-          with open(sys.argv[1], "a", encoding="utf-8") as f:
-              f.write(f"run={'true' if run else 'false'}\n")
-          PY "$GITHUB_OUTPUT"
+              reason = "weekend"
+            else:
+              # Weekday: allow after 16:15 ET
+              if (now.hour, now.minute) >= (16, 15):
+                run = True
+                reason = "after_close"
+              else:
+                run = False
+                reason = "before_close"
+
+          print(f"run={'true' if run else 'false'}")
+          print(f"reason={reason}")
+          PY
 
       - name: Stop if gated
         if: steps.gate.outputs.run != 'true'
-        run: echo "Gated. Skipping update." && exit 0
+        run: |
+          echo "Gated: ${{ steps.gate.outputs.reason }}"
+          exit 0
 
-      - name: Build daily_latest.json (+ periods)
+      - name: Build daily outputs
         run: node scripts/fetch_daily.js
 
-      - name: Build calendar.json (NYSE)
-        run: python scripts/update_calendar.py
-
-      - name: Merge latest.json
-        run: python scripts/update_latest.py
-
-      - name: Publish data to data branch
+      - name: Publish daily outputs to data branch
         shell: bash
         run: |
           set -euo pipefail
-          # keep working tree clean before switching branches
-          git clean -fdx
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          rm -rf _data_branch
+          mkdir -p _data_branch
 
           git fetch origin data || true
           if git show-ref --verify --quiet refs/remotes/origin/data; then
-            git checkout -B data origin/data
+            git clone --depth 1 --branch data "https://github.com/${GITHUB_REPOSITORY}.git" _data_branch
           else
-            git checkout --orphan data
-            git rm -rf . || true
+            git clone --depth 1 "https://github.com/${GITHUB_REPOSITORY}.git" _data_branch
+            (cd _data_branch && git checkout --orphan data && git rm -rf . || true)
           fi
 
-          mkdir -p public/data
-          git checkout main -- public/data || true
-          # copy generated files from main workspace
-          git checkout main -- public/data/daily_latest.json public/data/period_20d.json public/data/period_60d.json public/data/period_252d.json public/data/calendar.json public/data/latest.json || true
+          mkdir -p _data_branch/public/data
 
-          git add public/data/daily_latest.json public/data/period_20d.json public/data/period_60d.json public/data/period_252d.json public/data/calendar.json public/data/latest.json
-          git diff --cached --quiet || git commit -m "data: update daily/period/calendar/latest [skip ci]"
-          git push origin data
+          # Copy whatever exists (daily, period, calendar)
+          for f in daily_latest.json period_20d.json period_60d.json period_252d.json latest.json calendar.json; do
+            if [ -f "public/data/$f" ]; then
+              cp -f "public/data/$f" "_data_branch/public/data/$f"
+            fi
+          done
+
+          (cd _data_branch && \
+            git add public/data && \
+            git diff --cached --quiet || git commit -m "data(daily): refresh daily outputs [skip ci]")
+
+          (cd _data_branch && git push origin data)
