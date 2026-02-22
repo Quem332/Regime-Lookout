@@ -3,6 +3,11 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [ "main" ]
+    # Avoid rebuilding Pages for data-only commits.
+    paths-ignore:
+      - 'public/data/**'
+      - '.github/workflows/update-*.yml'
+      - '.github/workflows/update-data.yml'
   workflow_dispatch:
 
 permissions:

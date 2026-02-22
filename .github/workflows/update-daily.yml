@@ -2,12 +2,6 @@ name: Update Daily Data (EOD)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
-    paths:
-      - "scripts/**"
-      - "requirements.txt"
-      - ".github/workflows/update-daily.yml"
   schedule:
     # Hourly; gate below will skip before close.
     - cron: "15 * * * *"
@@ -24,6 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -41,7 +37,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: "Gate: skip unless after US market close (ET)"
+      - name: Gate: run only after US market close (ET)
         id: gate
         continue-on-error: true
         shell: bash
@@ -52,9 +48,12 @@ jobs:
           et = ZoneInfo("America/New_York")
           now = datetime.datetime.now(tz=et)
           if now.weekday() >= 5:
+              print("Weekend -> run")
               sys.exit(0)
           if (now.hour, now.minute) >= (16, 15):
+              print("After close -> run")
               sys.exit(0)
+          print("Before close -> skip")
           sys.exit(2)
           PY
 
@@ -65,10 +64,30 @@ jobs:
       - name: Build daily_latest.json
         run: node scripts/fetch_daily.js
 
-      - name: Commit & push
+      - name: Publish data to data branch
+        shell: bash
         run: |
+          set -euo pipefail
+
+          mkdir -p /tmp/mri-data
+          cp -f public/data/daily_latest.json /tmp/mri-data/ || true
+          cp -f public/data/latest.json /tmp/mri-data/ || true
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/data/daily_latest.json
-          git diff --cached --quiet || git commit -m "data(daily): refresh daily_latest.json"
-          git push
+
+          git fetch origin data || true
+          if git show-ref --verify --quiet refs/remotes/origin/data; then
+            git checkout -B data origin/data
+          else
+            git checkout --orphan data
+            git rm -rf . || true
+          fi
+
+          mkdir -p public/data
+          cp -f /tmp/mri-data/*.json public/data/ || true
+
+          git add public/data/*.json
+          git diff --cached --quiet && echo "No data changes" && exit 0
+          git commit -m "data(daily): refresh daily_latest.json [skip ci]"
+          git push -u origin data

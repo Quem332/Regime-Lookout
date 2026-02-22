@@ -11,6 +11,24 @@ function baseUrl() {
   }
 }
 
+// Prefer same-origin `/data/*` but fall back to the `data` branch on GitHub.
+// This prevents intraday (5m) updates from triggering Pages rebuilds.
+function guessRawDataBase() {
+  try {
+    if (typeof window === "undefined") return null;
+    const host = window.location.hostname || "";
+    if (!host.endsWith(".github.io")) return null;
+    const owner = host.split(".")[0];
+    const parts = (window.location.pathname || "").split("/").filter(Boolean);
+    const repo = parts[0];
+    if (!owner || !repo) return null;
+    // data branch hosts `public/data/*`.
+    return `https://raw.githubusercontent.com/${owner}/${repo}/data/public/`;
+  } catch {
+    return null;
+  }
+}
+
 function withTs(url) {
   const u = String(url);
   const sep = u.includes("?") ? "&" : "?";
@@ -21,6 +39,36 @@ async function fetchJson(url) {
   const res = await fetch(withTs(url), { cache: "no-store" });
   if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
   return await res.json();
+}
+
+async function fetchJsonWithFallback(path, log = console) {
+  const b = baseUrl();
+  const envBase = (import.meta && import.meta.env && import.meta.env.VITE_DATA_BASE_URL) || "";
+  const raw = guessRawDataBase();
+
+  const candidates = [];
+  // 1) same-origin (works if you ship data with dist)
+  candidates.push(`${b}data/${path}`);
+  // 2) explicit override
+  if (typeof envBase === "string" && envBase.trim()) {
+    const eb = envBase.endsWith("/") ? envBase : `${envBase}/`;
+    candidates.push(`${eb}${path}`);
+  }
+  // 3) GH raw data branch
+  if (raw) candidates.push(`${raw}data/${path}`);
+
+  let lastErr = null;
+  for (const u of Array.from(new Set(candidates))) {
+    try {
+      const json = await fetchJson(u);
+      log?.info?.("[MRI] fetched", path, "from", u);
+      return json;
+    } catch (e) {
+      lastErr = e;
+      log?.warn?.("[MRI] fetch failed", path, "from", u, String(e?.message || e));
+    }
+  }
+  throw lastErr || new Error(`Failed to fetch ${path}`);
 }
 
 function safeStr(v, d = null) {
@@ -47,22 +95,21 @@ export function useMRIState({ pollMs = 15000, logger = defaultLogger } = {}) {
   const mountedRef = useRef(false);
 
   const refreshLatest = useCallback(async () => {
-    const b = baseUrl();
     setError(null);
 
     try {
       // Prefer latest.json (one-file schema), but fall back gracefully.
       let obj = null;
       try {
-        obj = await fetchJson(`${b}data/latest.json`);
+        obj = await fetchJsonWithFallback("latest.json", logger);
       } catch {
         obj = null;
       }
 
       if (!obj) {
         const [daily, intraday] = await Promise.allSettled([
-          fetchJson(`${b}data/daily_latest.json`),
-          fetchJson(`${b}data/intraday_latest.json`),
+          fetchJsonWithFallback("daily_latest.json", logger),
+          fetchJsonWithFallback("intraday_latest.json", logger),
         ]);
         obj = {
           schema: "fallback",

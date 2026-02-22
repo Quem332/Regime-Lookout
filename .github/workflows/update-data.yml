@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -34,9 +36,26 @@ jobs:
 
       - name: Commit & push if changed
         run: |
-          git config user.name "mri-bot"
-          git config user.email "mri-bot@users.noreply.github.com"
+          set -euo pipefail
+
+          mkdir -p /tmp/mri-data
+          cp -f public/data/latest.json /tmp/mri-data/ || true
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin data || true
+          if git show-ref --verify --quiet refs/remotes/origin/data; then
+            git checkout -B data origin/data
+          else
+            git checkout --orphan data
+            git rm -rf . || true
+          fi
+
+          mkdir -p public/data
+          cp -f /tmp/mri-data/*.json public/data/ || true
+
           git add public/data/latest.json
           git diff --cached --quiet && echo "No changes" && exit 0
-          git commit -m "data: update latest.json"
-          git push
+          git commit -m "data: update latest.json [skip ci]"
+          git push -u origin data
