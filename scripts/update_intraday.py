@@ -89,19 +89,47 @@ def main():
         except Exception as e:
             last_exc = e
             df = None
+            # simple backoff to avoid hammering Yahoo
+            try:
+                import time
+                time.sleep(0.8 * (2 ** _try))
+            except Exception:
+                pass
 
     if df is None or len(df) == 0:
-        # Keep previous file to avoid breaking UI when Yahoo blocks CI
+        # Yahoo sometimes blocks CI or returns non-JSON/HTML (JSONDecodeError).
+        # We MUST NOT fail the workflow: keep previous file if present, otherwise write
+        # a minimal stub so UI can show "data unavailable" instead of breaking.
+        msg = str(last_exc or "yfinance empty")[:180]
+
+        stub = {
+            "schemaVersion": "2.3",
+            "asOf": now_et.isoformat(),
+            "fetchedAt": now_et.isoformat(),
+            "dataHealth": {"level": "DOWN", "source": "yfinance", "msg": msg},
+            "intraday": None,
+        }
+
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
         if os.path.exists(out_path):
-            with open(out_path, "r", encoding="utf-8") as f:
-                prev = json.load(f)
-            prev["dataHealth"] = {"level": "DEGRADED", "source": "cache", "msg": str(last_exc or "yfinance empty")[:180]}
-            prev["fetchedAt"] = now_et.isoformat()
-            with open(out_path, "w", encoding="utf-8") as f:
-                json.dump(prev, f, ensure_ascii=False, indent=2)
-            print("[WARN] Intraday fetch failed; kept previous intraday_latest.json")
-            return
-        raise RuntimeError("No intraday data fetched from yfinance")
+            try:
+                with open(out_path, "r", encoding="utf-8") as f:
+                    prev = json.load(f)
+                prev["fetchedAt"] = now_et.isoformat()
+                prev["dataHealth"] = {"level": "DEGRADED", "source": "cache", "msg": msg}
+                # keep previous intraday payload as-is
+                with open(out_path, "w", encoding="utf-8") as f:
+                    json.dump(prev, f, ensure_ascii=False, indent=2)
+                print("[WARN] Intraday fetch failed; kept previous intraday_latest.json (DEGRADED)")
+                return
+            except Exception as e:
+                stub["dataHealth"] = {"level": "DOWN", "source": "cache", "msg": f"failed to read previous file: {e}"[:180]}
+
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(stub, f, ensure_ascii=False, indent=2)
+        print("[WARN] Intraday fetch failed; wrote stub intraday_latest.json (DOWN)")
+        return
 
     close = pd.DataFrame(index=df.index)
     for k, t in INTRADAY_TICKERS.items():
