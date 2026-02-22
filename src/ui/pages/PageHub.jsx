@@ -84,11 +84,92 @@ export function PageHub({ api, t, lang, onToggleLang }) {
   };
 
   const onOpenLogs = () => {
-    const logText =
-      (typeof api?.logger?.exportText === "function" && api.logger.exportText()) ||
-      "(logger.exportText unavailable)";
-    openTextModal(tr("hubUi.logsTitle", "Logs"), logText);
-    api?.logger?.info?.("ui.hub_open_logs", { size: logText.length });
+    // Prefer logger dump, but always include a human-readable snapshot so debugging works even if logger is empty.
+    const snap = (() => {
+      const m = status?.market ?? null;
+      const h = status?.health ?? null;
+      const tm = status?.timers ?? null;
+      const d = daily ?? null;
+      const ia = intraday ?? null;
+
+      const lines = [];
+      lines.push("== STATUS SNAPSHOT ==");
+      if (m) {
+        lines.push(`market.label: ${m.label ?? "--"}`);
+        lines.push(`market.asOf: ${m.asOf ?? "--"}`);
+        lines.push(`market.fetchedAt: ${m.fetchedAt ?? "--"}`);
+        lines.push(`market.latencyMin: ${m.latencyMin ?? "--"}`);
+      } else {
+        lines.push("market: --");
+      }
+      if (h) {
+        lines.push(`health.label: ${h.label ?? "--"}`);
+        lines.push(`health.ageMin: ${h.ageMin ?? "--"}`);
+        lines.push(`health.lastOkAt: ${h.lastOkAt ?? "--"}`);
+        lines.push(`health.lastError: ${h.lastError ?? "--"}`);
+      } else {
+        lines.push("health: --");
+      }
+      if (tm) {
+        lines.push(`timers.countdown: ${tm.countdown ?? "--:--"}`);
+        lines.push(`timers.nextKind: ${tm.nextKind ?? "--"}`);
+        lines.push(`timers.nextUpdateInSec: ${tm.nextUpdateInSec ?? "--"}`);
+        lines.push(`timers.pollMs: ${tm.pollMs ?? "--"}`);
+      } else {
+        lines.push("timers: --");
+      }
+      lines.push(`marketOpen: ${Boolean(status?.marketOpen)}`);
+
+      lines.push("");
+      lines.push("== DAILY ==");
+      if (d) {
+        lines.push(`daily.score: ${d.score ?? "--"}`);
+        lines.push(`daily.Cfinal: ${d.Cfinal ?? "--"}`);
+        lines.push(`daily.regime7: ${d.regime7 ?? "--"}`);
+        lines.push(`daily.topK: ${d.topK ?? "--"}`);
+        lines.push(`daily.meta.asOf: ${d.meta?.asOf ?? "--"}`);
+        lines.push(`daily.meta.dataHealthLevel: ${d.meta?.dataHealthLevel ?? "--"}`);
+      } else {
+        lines.push("daily: --");
+      }
+
+      lines.push("");
+      lines.push("== INTRADAY ==");
+      const sc = ia?.scenario ?? ia?.scenarioPack ?? null;
+      if (ia) {
+        lines.push(`intraday.ts: ${ia.ts ?? ia.meta?.ts ?? "--"}`);
+        lines.push(`intraday.zShort: ${ia.zShort ?? "--"}`);
+        lines.push(`intraday.corrAvg: ${ia.corrAvg ?? "--"}`);
+        lines.push(`intraday.corrSurge: ${ia.corrSurge ?? "--"}`);
+        lines.push(`intraday.intervalUsed: ${ia.intervalUsed ?? "--"}`);
+        lines.push(`intraday.dataHealthLevel: ${ia.dataHealthLevel ?? ia.meta?.dataHealthLevel ?? "--"}`);
+      } else {
+        lines.push("intraday: --");
+      }
+      if (sc) {
+        lines.push(`intraday.scenario.Cfinal: ${sc.Cfinal ?? "--"}`);
+        lines.push(`intraday.scenario.regime7: ${sc.regime7 ?? "--"}`);
+        lines.push(`intraday.scenario.topK: ${sc.topK ?? "--"}`);
+      }
+      return lines.join("\n");
+    })();
+
+    const logTextRaw = (typeof api?.logger?.exportText === "function" && api.logger.exportText()) || "";
+    const logText = logTextRaw && logTextRaw.trim().length >= 10 ? logTextRaw : "(logger empty)";
+
+    const text = [
+      snap,
+      "",
+      "== LOGGER ==",
+      logText,
+      "",
+      "== EXPORT PACK ==",
+      safeJson(exportPack),
+      "",
+    ].join("\n");
+
+    openTextModal(tr("hubUi.logsTitle", "Logs"), text);
+    api?.logger?.info?.("ui.hub_open_logs", { size: text.length });
   };
 
   const onCopyExport = async () => {
