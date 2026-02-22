@@ -23,7 +23,7 @@ function guessRawDataBase() {
     const repo = parts[0];
     if (!owner || !repo) return null;
     // data branch hosts `public/data/*`.
-    return `https://raw.githubusercontent.com/${owner}/${repo}/data/public/`;
+    return `https://raw.githubusercontent.com/${owner}/${repo}/data/public/data/`;
   } catch {
     return null;
   }
@@ -55,7 +55,7 @@ async function fetchJsonWithFallback(path, log = console) {
     candidates.push(`${eb}${path}`);
   }
   // 3) GH raw data branch
-  if (raw) candidates.push(`${raw}data/${path}`);
+  if (raw) candidates.push(`${raw}${path}`);
 
   let lastErr = null;
   for (const u of Array.from(new Set(candidates))) {
@@ -90,6 +90,8 @@ function pickFirst(...vals) {
 export function useMRIState({ pollMs = 15000, logger = defaultLogger } = {}) {
   const [latest, setLatest] = useState(null);
   const [error, setError] = useState(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [lastOkAtMs, setLastOkAtMs] = useState(null);
 
   const timerRef = useRef(null);
   const mountedRef = useRef(false);
@@ -153,6 +155,12 @@ export function useMRIState({ pollMs = 15000, logger = defaultLogger } = {}) {
     };
   }, [refreshLatest, pollMs]);
 
+  // Local clock tick (keeps UI timers moving even if data doesn't refresh)
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
   // Derive daily/intraday/period/status
   const raw = latest?.raw || {};
   const daily = raw?.daily || latest?.daily || null;
@@ -175,12 +183,23 @@ export function useMRIState({ pollMs = 15000, logger = defaultLogger } = {}) {
       pollMs: Number(pollMs) || 15000,
     };
 
+    // Derived timers (client-side)
+    const nextSyncInSec = (lastOkAtMs && pollMs)
+      ? Math.max(0, Math.floor((pollMs - (nowMs - lastOkAtMs)) / 1000))
+      : null;
+    const syncAgeSec = lastOkAtMs ? Math.max(0, Math.floor((nowMs - lastOkAtMs) / 1000)) : null;
+
+    const timers2 = {
+      ...timers,
+      nextSyncInSec: timers?.nextSyncInSec ?? nextSyncInSec,
+      syncAgeSec: timers?.syncAgeSec ?? syncAgeSec,
+    };
+
     const meta = latest?.meta || {};
     const health = pickFirst(st?.dataHealth, raw?.dataHealth, null);
 
     return {
       marketOpen,
-      timers,
       marketClock: st?.marketClock || null,
       meta: {
         asOf: safeStr(meta?.asOf, safeStr(daily?.meta?.asOf, null)),
