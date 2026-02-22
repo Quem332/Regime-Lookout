@@ -237,21 +237,11 @@ export function PageHome({ api, tab, setTab, t, lang }) {
         // A-2 (Intraday) — always accessible (no lock overlay)
         <div className="grid gap-3">
           {!marketOpen ? (
-            <Card title={tSafe(lang, "market.closed", L("장 마감", "Market Closed"))} subtitle={tSafe(lang, "market.noteDaily", L("데일리는 장 외 시간에도 이용 가능합니다.", "Daily view stays available off-hours."))}>
-              <div className="mt-1 text-xs text-white/70">
-                {tSafe(lang, "market.opensIn", L("개장까지", "Opens in"))} {nextOpenInfo?.countdown ?? countdown}
-                <span className="ml-2 text-white/50">(09:30 ET)</span>
-              </div>
-              {nextOpenInfo?.openAt ? (
-                <div className="mt-1 text-[11px] text-white/60">
-                  {tSafe(lang, "market.openAt", L("개장", "Open"))}: {nextOpenInfo.openAtET} ET · {nextOpenInfo.openAt} {tSafe(lang, "market.local", L("현지", "local"))}
-                </div>
-              ) : null}
-            </Card>
+            
           ) : null}
 
           <Card title={tSafe(lang, "a2.factors", L("요인 (6D)", "Factors (6D)"))} subtitle={tSafe(lang, "a2.factorsSub", L("z-score + raw", "z-score + raw snapshot"))}>
-            <FactorBars V={daily?.V} raw={api?.mri?.inputsRaw ?? api?.mri?.daily?.inputsRaw ?? api?.mri?.meta?.inputsRaw} />
+            <FactorBars V={daily?.V} raw={api?.mri?.inputsRaw ?? api?.mri?.daily?.inputsRaw ?? api?.mri?.meta?.inputsRaw} lang={api?.mri?.lang ?? api?.lang ?? "en"} />
           </Card>
 
           <Card title={tSafe(lang, "ui.quadrant", L("포지션 맵", "Position Map"))} subtitle={tSafe(lang, "quadrant.subtitle", L("성장↔방어, 유입↔유출", "Growth↔Defense, Inflow↔Outflow"))}>
@@ -286,11 +276,7 @@ export function PageHome({ api, tab, setTab, t, lang }) {
                 <div>corrAvg: {Number.isFinite(intraday?.intraday?.corrAvg) ? Number(intraday.intraday.corrAvg).toFixed(2) : "--"}</div>
                 <div>corrSurge: {intraday?.intraday?.corrSurge ? "YES" : "NO"}</div>
               </div>
-            ) : (
-              <div className="text-sm text-white/70 leading-relaxed">
-                {tSafe(lang, "intraday.waitFirst", L("인트라데이 스냅샷을 기다리는 중입니다.", "Waiting for first intraday snapshot…"))}
-              </div>
-            )}
+            ) : (null)}
           </Card>
         </div>
       )}

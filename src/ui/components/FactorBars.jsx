@@ -10,6 +10,11 @@ function fmtPct(x) {
   return `${v.toFixed(2)}%`;
 }
 
+
+function L(lang, m) {
+  return (lang || "en").startsWith("ko") ? (m.ko ?? m.en) : (m.en ?? m.ko);
+}
+
 function fmtNum(x, d = 2) {
   if (x === null || x === undefined || Number.isNaN(x)) return "--";
   return Number(x).toFixed(d);
@@ -17,14 +22,14 @@ function fmtNum(x, d = 2) {
 
 // Renders 6D factors as bars, and (if available) raw inputs next to them.
 // Designed to never crash even if fields are missing.
-export default function FactorBars({ V, raw }) {
+export default function FactorBars({ V, raw, lang }) {
   const v = Array.isArray(V) && V.length === 6 ? V : [0, 0, 0, 0, 0, 0];
   const r = raw && typeof raw === "object" ? raw : null;
 
   const items = [
     {
       key: "x",
-      label: "x (Growth/Defense)",
+      label: L(lang, { en: "QQQM (growth) ↔ XLP (defense)", ko: "QQQM(성장) ↔ XLP(방어)" }),
       z: v[0],
       rawText: r
         ? `ln(QQQM/XLP) ${fmtNum(r?.x?.ln)} | ratio ${fmtNum(r?.x?.ratio, 3)}`
@@ -32,31 +37,31 @@ export default function FactorBars({ V, raw }) {
     },
     {
       key: "y",
-      label: "y (Flow)",
+      label: L(lang, { en: "VOO (inflow ↔ outflow)", ko: "VOO(유입 ↔ 유출)" }),
       z: v[1],
       rawText: r ? `VOO 20D ${fmtPct(r?.y?.voo_20d_pct)}` : "",
     },
     {
       key: "rates",
-      label: "rates",
+      label: L(lang, { en: "^TNX (rates: up ↔ down)", ko: "^TNX(금리:상승 ↔ 하락)" }),
       z: v[2],
       rawText: r ? `TNX 20D ${fmtPct(r?.rates?.tnx_20d_pct)} | lvl ${fmtNum(r?.levels?.TNX)}` : "",
     },
     {
       key: "usd",
-      label: "usd",
+      label: L(lang, { en: "UUP (USD: strong ↔ weak)", ko: "UUP(달러:강 ↔ 약)" }),
       z: v[3],
       rawText: r ? `UUP 20D ${fmtPct(r?.usd?.uup_20d_pct)} | lvl ${fmtNum(r?.levels?.UUP)}` : "",
     },
     {
       key: "vix",
-      label: "vix",
+      label: L(lang, { en: "^VIX (fear: up ↔ down)", ko: "^VIX(공포:상승 ↔ 하락)" }),
       z: v[4],
       rawText: r ? `VIX 5D ${fmtPct(r?.vix?.vix_5d_pct)} | lvl ${fmtNum(r?.levels?.VIX)}` : "",
     },
     {
       key: "goldFear",
-      label: "goldFear",
+      label: L(lang, { en: "GLD (risk-off: strong ↔ weak)", ko: "GLD(회피:강 ↔ 약)" }),
       z: v[5],
       rawText: r ? `GLD 20D ${fmtPct(r?.gold?.gld_20d_pct)} | lvl ${fmtNum(r?.levels?.GLD)}` : "",
     },
