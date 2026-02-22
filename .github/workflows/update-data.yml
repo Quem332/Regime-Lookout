@@ -1,7 +1,15 @@
 name: Update MRI Data (latest.json)
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - "scripts/**"
+      - "requirements.txt"
+      - ".github/workflows/**"
+      - "src/**"
+
 permissions:
   contents: write
 
@@ -40,6 +48,8 @@ jobs:
 
           mkdir -p /tmp/mri-data
           cp -f public/data/latest.json /tmp/mri-data/ || true
+          git reset --hard
+          git clean -fdx
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
