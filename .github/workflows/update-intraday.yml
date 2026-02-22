@@ -14,7 +14,7 @@ on:
       - 'requirements.txt'
       - '.github/workflows/update-intraday.yml'
   schedule:
-    - cron: "*/5 13-22 * * 1-5"  # broad US session window (gate handles exact hours)
+    - cron: '*/5 * * * *'
 
 permissions:
   contents: write

@@ -140,7 +140,7 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="text-xs text-white/60">
           {t?.("b.lookback", "Lookback") ?? "Lookback"}: {lookback.toUpperCase()}
-          {dataMissing ? ` · ${tSafe(t, "b.na", L("데이터 없음", "No data"))}` : ""}
+          {periodAvailable ? "" : ` · ${t?.("b.na", "(data not available yet)") ?? "(data not available yet)"}`}
         </div>
         <div className="flex items-center gap-1">
           {[
@@ -150,7 +150,7 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
           ].map((opt) => {
             const key = opt.label; // "20D/60D/252D"
             const available = !!dailyPeriods?.[key] || (!dailyPeriods && opt.k === "20d");
-            const label = available ? opt.label : tSafe(t, "period.btn.pending", L(`${opt.label} (준비중)`, `${opt.label} (pending)`));
+            const label = available ? opt.label : tSafe(lang, "period.btn.pending", L(`${opt.label} (준비중)`, `${opt.label} (pending)`));
             return (
               <button
                 key={opt.k}
@@ -165,7 +165,7 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
                   lookback === opt.k ? "bg-white/10 border-white/20" : "bg-transparent border-white/10 hover:bg-white/5",
                   !available ? "opacity-40 cursor-not-allowed hover:bg-transparent" : "",
                 ].join(" ")}
-                title={!available ? tSafe(t, "period.pending", L("데이터 준비 중", "Data pending")) : ""}
+                title={!available ? tSafe(lang, "period.pending", L("데이터 준비 중", "Data pending")) : ""}
               >
                 {label}
               </button>
@@ -175,7 +175,7 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
       </div>
       {view === "b1" ? (
         <div className="grid gap-3">
-          <Card title={tSafe(t, "b1.title", L("기간 해석", "Period Interpretation"))} subtitle={tSafe(t, "b1.subtitle", L("구조 + 분포 (점수 없음)", "Structure + distribution (no score)"))}>
+          <Card title={tSafe(lang, "b1.title", L("기간 해석", "Period Interpretation"))} subtitle={tSafe(lang, "b1.subtitle", L("구조 + 분포 (점수 없음)", "Structure + distribution (no score)"))}>
             <div className="text-sm text-white/85 leading-snug">
   {periodCopy?.summary ?? "--"}
 </div>
@@ -220,20 +220,11 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
         </div>
       ) : (
         <div className="grid gap-3">
-          <Card title={tSafe(t, "b2.factors", L("요인 (기간)", "Period Factors"))} subtitle={`${tSafe(t, "b2.factorsSub", L("요인(6D) + 맵", "Factors (6D) + map"))} · ${lbKey}`}>
-            {dataMissing ? (
-              <div className="py-6 text-sm text-white/60">
-                {tSafe(t, "ui.dataMissing", L("데이터가 없어 표시할 수 없습니다. (Actions에서 데이터 업데이트를 실행하세요)", "Data is missing. (Run a data update workflow in Actions)"))}
-              </div>
-            ) : (
-              <FactorBars V={viewModel?.V} raw={periodDaily?.inputsRaw ?? dailyRoot?.inputsRaw ?? dailyRoot?.meta?.inputsRaw ?? null} />
-            )}
-              <div className="mt-2 text-xs text-white/50">
-                {tSafe(t, "bars.note", L("※ 바는 표준화(z) 기준입니다. VOO는 +면 유입(상승), -면 유출(하락)로 해석합니다.", "※ Bars are standardized (z). For VOO: + = inflow (up), - = outflow (down)."))}
-              </div>
+          <Card title={tSafe(lang, "b2.factors", L("요인 (기간)", "Period Factors"))} subtitle={`${tSafe(lang, "b2.factorsSub", L("요인(6D) + 맵", "Factors (6D) + map"))} · ${lbKey}`}>
+            <FactorBars V={viewModel?.V} raw={periodDaily?.inputsRaw ?? dailyRoot?.inputsRaw ?? dailyRoot?.meta?.inputsRaw ?? null} />
           </Card>
 
-          <Card title={tSafe(t, "ui.quadrant", L("포지션 맵", "Position Map"))} subtitle={tSafe(t, "quadrant.subtitle", L("성장↔방어, 유입↔유출", "Growth↔Defense, Inflow↔Outflow"))}>
+          <Card title={tSafe(lang, "ui.quadrant", L("포지션 맵", "Position Map"))} subtitle={tSafe(lang, "quadrant.subtitle", L("성장↔방어, 유입↔유출", "Growth↔Defense, Inflow↔Outflow"))}>
             <div className="relative w-full aspect-[16/9] rounded-2xl bg-white/5 border border-white/10 overflow-hidden">
               <div className="absolute inset-0">
                 <div className="absolute left-1/2 top-0 bottom-0 w-px bg-white/10" />
@@ -248,8 +239,13 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
               <div
                 className="absolute w-3 h-3 rounded-full bg-white/70 shadow"
                 style={{ left: `calc(${dotPos.left}% - 6px)`, top: `calc(${dotPos.top}% - 6px)` }}
-                title={tSafe(t, "quadrant.tip", L("성장↔방어 / 유입↔유출", "Growth↔Defense / Inflow↔Outflow"))}
+                title={tSafe(lang, "quadrant.tip", L("성장↔방어 / 유입↔유출", "Growth↔Defense / Inflow↔Outflow"))}
               />
+            </div>
+
+            <div className="mt-2 flex items-center justify-between text-xs text-white/70">
+              <span>{tSafe(lang, "factors.growthDefense", L("QQQM(성장) ↔ XLP(방어)", "QQQM (Growth) ↔ XLP (Defense)"))}: {x == null ? "--" : Number(x).toFixed(2)}</span>
+              <span>{tSafe(lang, "factors.inflowOutflow", L("VOO(유입 ↔ 유출)", "VOO (Inflow ↔ Outflow)"))}: {y == null ? "--" : Number(y).toFixed(2)}</span>
             </div>
           </Card>
         </div>

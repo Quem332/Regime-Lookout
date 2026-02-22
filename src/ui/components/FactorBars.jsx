@@ -22,7 +22,7 @@ function fmtNum(x, d = 2) {
 
 // Renders 6D factors as bars, and (if available) raw inputs next to them.
 // Designed to never crash even if fields are missing.
-export default function FactorBars({ V, raw, lang, showIntradayNote = false }) {
+export default function FactorBars({ V, raw, lang }) {
   const v = Array.isArray(V) && V.length === 6 ? V : [0, 0, 0, 0, 0, 0];
   const r = raw && typeof raw === "object" ? raw : null;
 
@@ -95,15 +95,6 @@ export default function FactorBars({ V, raw, lang, showIntradayNote = false }) {
           </div>
         );
       })}
-    
-      {showIntradayNote ? (
-        <div className="pt-1 text-[11px] leading-snug text-white/45">
-          {L(lang, {
-            ko: "※ 장중 지표는 당일 흐름 참고용이며, 종가 확정 후 해석이 달라질 수 있습니다.",
-            en: "Intraday signals are provisional and may change after the close.",
-          })}
-        </div>
-      ) : null}
     </div>
   );
 }

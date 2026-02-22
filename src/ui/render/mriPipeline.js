@@ -15,20 +15,11 @@ function clamp(n, lo, hi) {
   return Math.max(lo, Math.min(hi, n));
 }
 
-// Localized fallback helper: L("ko text", "en text")
-export function L(ko, en) {
-  return { ko, en };
-}
-
 export function tSafe(t, key, fallback) {
-  // If fallback is bilingual, pick by t.lang
-  const fb = (fallback && typeof fallback === "object" && ("ko" in fallback || "en" in fallback))
-    ? ((String(t?.lang || "").startsWith("ko") ? fallback.ko : fallback.en) ?? fallback.ko ?? fallback.en)
-    : fallback;
   try {
-    return typeof t === "function" ? (t(key, fb) ?? fb) : fb;
+    return typeof t === "function" ? (t(key, fallback) ?? fallback) : fallback;
   } catch {
-    return fb;
+    return fallback;
   }
 }
 
