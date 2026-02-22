@@ -3,11 +3,17 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [ "main" ]
-    # Avoid rebuilding Pages for data-only commits.
+    # Avoid rebuilding Pages for data-only commits on main.
     paths-ignore:
       - 'public/data/**'
       - '.github/workflows/update-*.yml'
       - '.github/workflows/update-data.yml'
+  workflow_run:
+    workflows:
+      - "Update Intraday Data (Market Hours)"
+      - "Update Daily Data (EOD)"
+      - "Update All Data (Manual)"
+    types: [ completed ]
   workflow_dispatch:
 
 permissions:
@@ -21,10 +27,14 @@ concurrency:
 
 jobs:
   build:
+    # Only deploy on successful upstream runs (for workflow_run), otherwise always allow.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout (main)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -37,6 +47,22 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Pull latest data branch artifacts
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          rm -rf _data_branch
+          git clone --depth 1 --branch data "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" _data_branch
+          mkdir -p dist/data
+          if [ -d "_data_branch/public/data" ]; then
+            cp -f _data_branch/public/data/*.json dist/data/ 2>/dev/null || true
+            cp -f _data_branch/public/data/*.txt dist/data/ 2>/dev/null || true
+          fi
+          # Ensure Pages serves files without Jekyll interference.
+          cp -f .nojekyll dist/.nojekyll || true
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
