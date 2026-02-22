@@ -325,17 +325,19 @@ function isNyseHolidayET(dateKey /*YYYY-MM-DD*/) {
 
 function computeMarketClock(now) {
   // Regular hours (ET): 09:30 - 16:00
-  const etNow = makeDateInTimeZone(now, "America/New_York");
-  const y = etNow.getFullYear();
-  const M = etNow.getMonth() + 1;
-  const D = etNow.getDate();
+  // IMPORTANT: Do NOT try to construct ET dates by passing a Date into makeDateInTimeZone;
+  // makeDateInTimeZone expects explicit parts.
+  const p = getETParts(now);
+  const y = p.year;
+  const M = p.month;
+  const D = p.day;
   const dateKey = `${String(y).padStart(4, "0")}-${String(M).padStart(2, "0")}-${String(D).padStart(2, "0")}`;
 
-  const day = etNow.getDay(); // 0=Sun..6
-  const isWeekend = day === 0 || day === 6;
+  const wd = p.weekday; // "Mon".."Sun"
+  const isWeekend = wd === "Sat" || wd === "Sun";
   const isHoliday = isNyseHolidayET(dateKey);
 
-  const minutes = etNow.getHours() * 60 + etNow.getMinutes();
+  const minutes = (Number.isFinite(p.hour) ? p.hour : 0) * 60 + (Number.isFinite(p.minute) ? p.minute : 0);
   const openMin = 9 * 60 + 30;
   const closeMin = 16 * 60;
 
@@ -369,10 +371,11 @@ function computeMarketClock(now) {
   let nextKind = "OPEN";
   let secondsToNext = null;
 
+  const etNow = makeDateInTimeZone({ year: y, month: M, day: D, hour: p.hour, minute: p.minute, timeZone: "America/New_York" });
+
   if (phase === "OPEN") {
     // time to today's close
-    const closeET = makeDateInTimeZone(new Date(now), "America/New_York");
-    closeET.setHours(16, 0, 0, 0);
+    const closeET = makeDateInTimeZone({ year: y, month: M, day: D, hour: 16, minute: 0, timeZone: "America/New_York" });
     secondsToClose = Math.max(0, Math.floor((closeET.getTime() - etNow.getTime()) / 1000));
     nextKind = "CLOSE";
     secondsToNext = secondsToClose;
@@ -385,10 +388,7 @@ function computeMarketClock(now) {
     }
     // build target 09:30 ET
     const [ty, tm, td] = targetKey.split("-").map((x) => Number(x));
-    const openET = makeDateInTimeZone(new Date(Date.UTC(ty, tm - 1, td, 14, 30, 0)), "America/New_York"); // 09:30 ET approx
-    // Fix: ensure openET has 09:30 in ET
-    openET.setFullYear(ty, tm - 1, td);
-    openET.setHours(9, 30, 0, 0);
+    const openET = makeDateInTimeZone({ year: ty, month: tm, day: td, hour: 9, minute: 30, timeZone: "America/New_York" });
 
     secondsToOpen = Math.max(0, Math.floor((openET.getTime() - etNow.getTime()) / 1000));
     nextKind = "OPEN";
@@ -474,8 +474,19 @@ const zShortDaily = Number.isFinite(intraday?.zShort) ? intraday.zShort : Number
 
     const tags = buildReasoningTags({ V, corrAvg: corrAvgDaily, corrSurge: corrSurgeDaily, zShort: zShortDaily, probs, Cfinal });
 
+    // buildScenarioPackFromIntraday expects a "latest-like" payload (featuresZ + intraday + dataHealth).
+    // During daily rebuild, the normalized payload lives in latestRef.current; fall back to the inputs we have
+    // to avoid ReferenceError("latest is not defined") and to keep the UI stable.
+    const latestLike =
+      latestRef.current ||
+      {
+        featuresZ,
+        intraday: meta?.intraday ?? null,
+        dataHealth: { level: meta?.dataHealthLevel ?? null },
+      };
+
     const snapshot = {
-      scenario: buildScenarioPackFromIntraday(latest),
+      scenario: buildScenarioPackFromIntraday(latestLike),
       // core outputs
       V,
       probs,
