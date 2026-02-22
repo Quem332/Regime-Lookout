@@ -188,7 +188,6 @@ export function PageHome({ api, tab, setTab, t, lang }) {
 
             <div className="mt-2 text-sm text-white/85 leading-snug">{scoreCopy?.summary ?? oneLine ?? ""}</div>
             <div className="mt-1 text-xs text-white/60 leading-snug">{scoreCopy?.warning ?? ""}</div>
-            <div className="mt-1 text-xs text-white/55 leading-snug">{scoreCopy?.reasonsText ?? ""}</div>
 
             {Array.isArray(scoreCopy?.reasonTags) && scoreCopy.reasonTags.length ? (
               <div className="mt-2 flex flex-wrap gap-2">

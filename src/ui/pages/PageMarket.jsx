@@ -72,13 +72,12 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
   const vm = useMemo(() => buildMriViewModel({ api, t }), [api, t]);
   const daily = vm.raw.daily;
 
-  // Forward-compatible period support.
-  // If backend emits period aggregates later, attach them under mri.period.
-  const [lookback, setLookback] = useState(() => loadLookback("252d"));
-  const period = api?.mri?.period?.[lookback] || null;
-
-  // Period payload can be either the object itself or wrapped in { daily: ... } depending on pipeline version.
-  const periodDaily = period?.daily ?? period ?? null;
+  // Forward-compatible period support: accept both legacy (single daily) and new schema (daily.periods).
+  const [lookback, setLookback] = useState(() => loadLookback("20d"));
+  const dailyRoot = daily ?? null;
+  const dailyPeriods = dailyRoot?.periods ?? null;
+  const lbKey = String(lookback || "20d").toUpperCase(); // "20D"
+  const periodDaily = (dailyPeriods && dailyPeriods[lbKey]) ? dailyPeriods[lbKey] : (!dailyPeriods && lbKey === "20D" ? dailyRoot : null);
   const periodTags = Array.isArray(periodDaily?.tags) ? periodDaily.tags : [];
   const periodCopy = useMemo(() => {
     return buildPeriodCopy({
@@ -148,22 +147,30 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
             { k: "20d", label: "20D" },
             { k: "60d", label: "60D" },
             { k: "252d", label: "252D" },
-          ].map((opt) => (
-            <button
-              key={opt.k}
-              type="button"
-              data-stop-toggle="1"
-              onClick={(e) => {
-                e.stopPropagation();
-                setLookback(opt.k);
-                saveLookback(opt.k);
-                api?.logger?.info?.("ui.market_set_lookback", { lookback: opt.k });
-              }}
-              className={`px-2 py-1 rounded-full text-[11px] border ${lookback === opt.k ? "bg-white/20 border-white/30" : "bg-white/5 border-white/10"}`}
-            >
-              {opt.label}
-            </button>
-          ))}
+          ].map((opt) => {
+            const key = opt.label; // "20D/60D/252D"
+            const available = !!dailyPeriods?.[key] || (!dailyPeriods && opt.k === "20d");
+            const label = available ? opt.label : tSafe(lang, "period.btn.pending", L(`${opt.label} (준비중)`, `${opt.label} (pending)`));
+            return (
+              <button
+                key={opt.k}
+                disabled={!available}
+                onClick={() => {
+                  if (!available) return;
+                  setLookback(opt.k);
+                  saveLookback(opt.k);
+                }}
+                className={[
+                  "px-3 py-1.5 rounded-full text-sm border",
+                  lookback === opt.k ? "bg-white/10 border-white/20" : "bg-transparent border-white/10 hover:bg-white/5",
+                  !available ? "opacity-40 cursor-not-allowed hover:bg-transparent" : "",
+                ].join(" ")}
+                title={!available ? tSafe(lang, "period.pending", L("데이터 준비 중", "Data pending")) : ""}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
       </div>
       {view === "b1" ? (
@@ -173,7 +180,6 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
   {periodCopy?.summary ?? "--"}
 </div>
 {periodCopy?.warning ? <div className="mt-1 text-xs text-white/60 leading-snug">{periodCopy.warning}</div> : null}
-{periodCopy?.reasonsText ? <div className="mt-1 text-xs text-white/55 leading-snug">{periodCopy.reasonsText}</div> : null}
 
 {Array.isArray(periodCopy?.reasonTags) && periodCopy.reasonTags.length ? (
   <div className="mt-2 flex flex-wrap gap-2">
@@ -214,11 +220,11 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
         </div>
       ) : (
         <div className="grid gap-3">
-          <Card title={t?.("b2.factors", "Period Breakdown") ?? "Period Breakdown"} subtitle={`${tSafe("en","b2.factorsSub","Factors (6D) + map")} · ${lookback.toUpperCase()}`}>
-            <FactorBars V={viewModel?.V} raw={api?.mri?.inputsRaw ?? api?.mri?.daily?.inputsRaw ?? api?.mri?.meta?.inputsRaw} />
+          <Card title={tSafe(lang, "b2.factors", L("요인 (기간)", "Period Factors"))} subtitle={`${tSafe(lang, "b2.factorsSub", L("요인(6D) + 맵", "Factors (6D) + map"))} · ${lbKey}`}>
+            <FactorBars V={viewModel?.V} raw={periodDaily?.inputsRaw ?? dailyRoot?.inputsRaw ?? dailyRoot?.meta?.inputsRaw ?? null} />
           </Card>
 
-          <Card title={t?.("ui.quadrant", "Position Map") ?? "Position Map"} subtitle={t?.("quadrant.subtitle", "Growth↔Defense, Inflow↔Outflow") ?? "Growth↔Defense, Inflow↔Outflow"}>
+          <Card title={tSafe(lang, "ui.quadrant", L("포지션 맵", "Position Map"))} subtitle={tSafe(lang, "quadrant.subtitle", L("성장↔방어, 유입↔유출", "Growth↔Defense, Inflow↔Outflow"))}>
             <div className="relative w-full aspect-[16/9] rounded-2xl bg-white/5 border border-white/10 overflow-hidden">
               <div className="absolute inset-0">
                 <div className="absolute left-1/2 top-0 bottom-0 w-px bg-white/10" />

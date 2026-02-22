@@ -267,6 +267,11 @@ export const I18N = {
       5: "유동성 파티",
       6: "스태그플레이션",
     },
+        "period.meta.period": "기간",
+        "period.meta.conf": "신뢰도",
+        "period.summary.lowc": "{p} 신호는 있으나 확신은 제한적입니다. 문구는 보수적으로 유지하세요.",
+        "period.warn.verylow": "신뢰도 매우 낮음: 분산/관망을 우선하고 구조가 정리되길 기다리세요.",
+        "period.warn.low": "신뢰도 낮음: 단정은 피하고 추가 확인을 권장합니다.",
     // A-1 문구(3층 구조: 요약/신뢰도 경고/근거)
     "copy.summary.na": "단정할 만큼의 데이터가 충분하지 않습니다.",
     "copy.summary.high": "리스크 조정 관점에서 비교적 안정 신호가 우세합니다.",
