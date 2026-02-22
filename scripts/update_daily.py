@@ -399,52 +399,68 @@ def _compute_featuresZ(close: pd.DataFrame, z_window: int) -> dict:
 def main():
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     out_path = os.path.join(repo_root, "public", "data", "daily_latest.json")
-
     now_et = datetime.datetime.now(tz=ET)
-    close = _download_daily()
-    if close is None or len(close) == 0:
-        prev_path = os.path.join('public','data','daily_latest.json')
-        if os.path.exists(prev_path):
-            print('[WARN] Keeping previous daily_latest.json (no new data)')
+
+    try:
+        close = _download_daily()
+        if close is None or len(close) == 0:
+            raise RuntimeError("No daily data fetched from yfinance")
+
+        # Use the latest row timestamp as asOf (ET)
+        asof_ts = close.index[-1].to_pydatetime().replace(tzinfo=ET)
+        latency_min = round((now_et - asof_ts).total_seconds() / 60.0, 1)
+
+        periods = {
+            "20D": 20,
+            "60D": 60,
+            "252D": 252,
+        }
+
+        periods_payload = {}
+        for key, win in periods.items():
+            periods_payload[key] = {"featuresZ": _compute_featuresZ(close, win)}
+
+        # Compute engine outputs (score/Cfinal/regime7/probs{p,c}) for each period
+        daily_pack = compute_today_pack(periods_payload["252D"]["featuresZ"])
+        for key in periods_payload.keys():
+            periods_payload[key]["daily"] = compute_today_pack(periods_payload[key]["featuresZ"])
+
+        payload = {
+            "schemaVersion": "2.3",
+            "asOf": asof_ts.isoformat(),
+            "lastTradingDay": _last_trading_day_et(now_et),
+            "featuresZ": periods_payload["252D"]["featuresZ"],
+            "daily": daily_pack,
+            "periods": periods_payload,
+            "dataHealth": {"level": "OK", "source": "yfinance"},
+            "latencyMin": latency_min,
+            "fetchedAt": now_et.isoformat(),
+        }
+
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+
+        print("[OK] Wrote daily_latest.json", out_path)
+        return
+
+    except Exception as e:
+        # Yahoo sometimes blocks CI or returns empty/HTML.
+        # Do NOT fail the workflow: reuse previous file if possible, else write a stub.
+        msg = str(e)[:180]
+        print(f"[daily][WARN] build failed: {msg}")
+
+        if os.path.exists(out_path):
+            print("[daily] keeping existing daily_latest.json (no overwrite)")
             return
-        raise RuntimeError('No daily data fetched from yfinance')
 
-    # Use the latest row timestamp as asOf (ET)
-    asof_ts = close.index[-1].to_pydatetime().replace(tzinfo=ET)
-    latency_min = round((now_et - asof_ts).total_seconds() / 60.0, 1)
+        # try reuse previous from data branch (best effort)
+        if _try_copy_previous_daily(out_path):
+            return
 
-    periods = {
-        "20D": 20,
-        "60D": 60,
-        "252D": 252,
-    }
-
-    periods_payload = {}
-    for key, win in periods.items():
-        periods_payload[key] = {"featuresZ": _compute_featuresZ(close, win)}
-
-    # Compute engine outputs (score/Cfinal/regime7/probs{p,c}) for each period
-    daily_pack = compute_today_pack(periods_payload["252D"]["featuresZ"])
-    for key in periods_payload.keys():
-        periods_payload[key]["daily"] = compute_today_pack(periods_payload[key]["featuresZ"])
-
-    payload = {
-        "schemaVersion": "2.3",
-        "asOf": asof_ts.isoformat(),
-        "lastTradingDay": _last_trading_day_et(now_et),
-        "featuresZ": periods_payload["252D"]["featuresZ"],
-        "daily": daily_pack,
-        "periods": periods_payload,
-        "dataHealth": {"level": "OK", "source": "yfinance"},
-        "latencyMin": latency_min,
-        "fetchedAt": now_et.isoformat(),
-    }
-
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
-
-    print("[OK] Wrote daily_latest.json", out_path)
+        _write_stub_daily(out_path, msg)
+        print("[daily] wrote stub daily_latest.json to keep UI stable")
+        return
 
 
 if __name__ == "__main__":
