@@ -65,6 +65,10 @@ function isTapLike(start, end, maxDist = 10, maxMs = 320) {
 export function PageMarket({ api, tab, setTab, t, lang }) {
   const L = (ko, en) => (String(lang || "").startsWith("ko") ? ko : en);
 
+  // Common short labels
+  const W_PROB = L("확률", "Prob.");
+  const W_CONF = L("신뢰도", "Conf.");
+
   const vm = useMemo(() => buildMriViewModel({ api, t }), [api, t]);
   const daily = vm.raw.daily;
 
