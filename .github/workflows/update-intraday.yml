@@ -22,8 +22,7 @@ permissions:
 
 concurrency:
   group: data-branch-publish
-  cancel-in-progress: true
-
+  cancel-in-progress: false
 jobs:
   update:
     runs-on: ubuntu-latest
@@ -102,34 +101,31 @@ jobs:
           rm -rf _data_branch
           git clone --depth 1 --branch data "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" _data_branch
 
+          (cd _data_branch && git config user.name "github-actions[bot]")
+          (cd _data_branch && git config user.email "41898282+github-actions[bot]@users.noreply.github.com")
+
+          mkdir -p _data_branch/public/data
+          cp -f public/data/intraday_latest.json _data_branch/public/data/intraday_latest.json
+
           cd _data_branch
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          mkdir -p public/data
-          cp -f ../public/data/intraday_latest.json public/data/intraday_latest.json
-
           git add public/data/intraday_latest.json
-          if git diff --cached --quiet; then
+          if ! git diff --cached --quiet; then
+            git commit -m "data(intraday): refresh intraday_latest.json [skip ci]"
+            for attempt in 1 2 3; do
+  echo "Push attempt $attempt..."
+  git fetch origin data --depth=50 || true
+  git rebase origin/data || true
+  if git push origin HEAD:data; then
+    echo "Push succeeded."
+    break
+  fi
+  echo "Push rejected; retrying after rebase..."
+  sleep $((attempt*2))
+  if [ "$attempt" = "3" ]; then
+    echo "Push failed after retries."
+    exit 1
+  fi
+done
+          else
             echo "No changes to commit."
-            exit 0
           fi
-
-          git commit -m "data(intraday): refresh intraday_latest.json [skip ci]"
-
-          for attempt in 1 2 3; do
-            echo "Push attempt $attempt..."
-            git fetch origin data --depth=50 || true
-            git rebase origin/data || true
-
-            if git push origin HEAD:data; then
-              echo "Push succeeded."
-              exit 0
-            fi
-
-            echo "Push rejected; retrying after rebase..."
-            sleep $((attempt*2))
-          done
-
-          echo "Push failed after retries."
-          exit 1
