@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "2.3",
+  "asOf": "2026-02-22T02:49:47.981943-05:00",
+  "fetchedAt": "2026-02-22T02:49:47.981943-05:00",
+  "dataHealth": {
+    "level": "DOWN",
+    "source": "yfinance",
+    "msg": "yfinance empty"
+  },
+  "intraday": null
+}
