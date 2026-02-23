@@ -140,7 +140,7 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="text-xs text-white/60">
           {t?.("b.lookback", "Lookback") ?? "Lookback"}: {lookback.toUpperCase()}
-          {periodAvailable ? "" : ` · ${t?.("b.na", "(data not available yet)") ?? "(data not available yet)"}`}
+          {periodReady ? "" : ` · ${t?.("b.na", "(data not available yet)") ?? "(data not available yet)"}`}
         </div>
         <div className="flex items-center gap-1">
           {[

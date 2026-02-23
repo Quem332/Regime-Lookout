@@ -81,12 +81,8 @@ export function buildOneLineVerdict({ score, Cfinal, regime7, tags, t }) {
 
 
 function tSafe(t, key, fallback) {
-  if (!t) return fallback;
-  // support both dictionary-style and function-style translators (createT)
   try {
-    if (typeof t === "function") return t(key, fallback) ?? fallback;
-    const v = t[key];
-    return v == null ? fallback : v;
+    return typeof t === "function" ? (t(key, fallback) ?? fallback) : fallback;
   } catch {
     return fallback;
   }
@@ -315,7 +311,6 @@ export function buildPeriodCopy({ Cfinal, regime7, probs, tags, lookbackKey, t, 
       parts.push(tr("period.reasons.entropy", `Dispersion (entropy): ${entropy.toFixed(2)}`));
     }
     if (c != null) {
-      parts.push(tr("period.reasons.c", `Confidence: ${Math.round(c)}`));
     }
     if (regime7 != null) {
       parts.push(tr("period.reasons.regime", `Regime: ${String(regime7)}`));
