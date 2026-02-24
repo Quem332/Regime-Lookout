@@ -68,10 +68,8 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
   // Common short labels
   const W_PROB = L("확률", "Prob.");
   const W_CONF = L("신뢰도", "Conf.");
-  const W_SCORE = L("점수", "Score");
 
   const vm = useMemo(() => buildMriViewModel({ api, t }), [api, t]);
-  const marketOpen = Boolean(vm.raw?.marketOpen ?? api?.mri?.status?.marketOpen ?? api?.mri?.marketOpen ?? false);
   const daily = vm.raw.daily;
 
   // Forward-compatible period support: accept both legacy (single daily) and new schema (daily.periods).
@@ -106,6 +104,10 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
     });
   }, [periodDaily?.Cfinal, periodDaily?.regime7, periodDaily?.probs, periodDaily?.tags, lookback, t]);
   const viewModel = periodDaily || daily;
+
+  const marketOpen = Boolean(vm.raw?.marketOpen ?? api?.marketOpen ?? api?.statusComputed?.marketOpen ?? false);
+  const periodScore = Number.isFinite(periodDaily?.score) ? periodDaily.score : null;
+  const periodC = Number.isFinite(periodDaily?.Cfinal) ? periodDaily.Cfinal : null;
 
   const view = tab ?? "b1"; // b1 | b2
 
@@ -153,7 +155,13 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
   return (
     <div className="px-4 pb-6 min-h-[calc(100dvh-4rem)]" onPointerDown={onPointerDown} onPointerUp={onPointerUp} style={{ touchAction: "pan-y" }}>
       <div className="mb-3 flex items-center justify-between gap-2">
-        <div className="text-xs text-white/60">{dataMissing ? tSafe(t, "b.na", L("데이터 없음", "No data")) : ""}</div>
+        {dataMissing ? (
+          <div className="text-xs text-white/60">
+            {tSafe(t, "b.na", L("데이터 없음", "No data"))}
+          </div>
+        ) : (
+          <div />
+        )
         <div className="flex items-center gap-1">
           {[
             { k: "20d", label: "20D" },
@@ -193,16 +201,20 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
       ) : null}
 
       {view === "b1" ? (
-        <div className="grid gap-3">
-          <Card className="p-3" title={tSafe(t, "b1.title", L("기간 해석", "Period Interpretation"))} subtitle={tSafe(t, "b1.subtitle", L("구조 + 분포 (점수 없음)", "Structure + distribution (no score)"))}>
-            <div className="flex items-start justify-between gap-3 mb-2">
-              <div className="text-sm text-white/85 leading-snug">
-                {periodCopy?.summary ?? "--"}
+        <div className="grid gap-4">
+          <Card title={tSafe(t, "b1.title", L("기간 해석", "Period Interpretation"))} subtitle={tSafe(t, "b1.subtitle", L("구조 + 분포 (점수 없음)", "Structure + distribution (no score)"))}>
+            <div className="flex items-baseline justify-between gap-2 mb-3">
+              <div className="text-sm text-white/85">
+                {marketOpen ? tSafe(t, "ui.todaySession", L("오늘 장", "Today session")) : tSafe(t, "ui.closeBasis", L("마감 기준", "Close basis"))}{" "}
+                {tSafe(t, "ui.score", L("점수", "Score"))} {periodScore == null ? "--" : String(Math.round(periodScore))} ·{" "}
+                {tSafe(t, "ui.confidence", L("신뢰도", "Confidence"))} {periodC == null ? "--" : String(Math.round(periodC))}
               </div>
-              {Number.isFinite(periodDaily?.score) || Number.isFinite(periodDaily?.Cfinal) ? (
-                <div className="text-[11px] text-white/60 tabular-nums whitespace-nowrap">{marketOpen ? L("오늘 장", "Today") : L("마감", "Close")}{Number.isFinite(periodDaily?.score) ? ` ${W_SCORE} ${Math.round(periodDaily.score)}` : ""}{Number.isFinite(periodDaily?.Cfinal) ? ` · ${W_CONF} ${Math.round(periodDaily.Cfinal)}` : ""}</div>
-              ) : null}
             </div>
+
+            <div className="text-sm text-white/85 leading-snug">
+
+  {periodCopy?.summary ?? "--"}
+</div>
 {periodCopy?.warning ? <div className="mt-1 text-xs text-white/60 leading-snug">{periodCopy.warning}</div> : null}
 
 {Array.isArray(periodCopy?.reasonTags) && periodCopy.reasonTags.length ? (
@@ -213,7 +225,7 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
   </div>
 ) : null}
 
-<div className="mt-3" />
+<div className="mt-4" />
 
             <div className="space-y-2">
               {probList.length ? (
@@ -221,11 +233,12 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
                   const label = t?.(`scenarios.${k}`, `S${k}`) ?? `S${k}`;
                   const pp = probParts(v);
                         const pct = Math.round((pp.p ?? 0) * 100);
+                        const ci = Number.isFinite(pp.c) ? pp.c : (Number.isFinite(periodDaily?.Cfinal) ? periodDaily.Cfinal : null);
                   return (
                     <div key={k} className="space-y-1">
                       <div className="flex items-center justify-between text-xs text-white/80">
                         <span className="truncate">{label}</span>
-                        <span className="tabular-nums">{`${W_PROB} ${pct}%`}</span>
+                        <span className="tabular-nums">{`${W_PROB} ${pct}%`}{Number.isFinite(ci) ? ` · ${W_CONF} ${Math.round(ci)}` : ""}</span>
                       </div>
                       <div className="h-2 rounded-full bg-white/10 overflow-hidden">
                         <div className="h-full rounded-full bg-white/30" style={{ width: `${pct}%` }} />
@@ -242,18 +255,18 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
           {/* Removed English note strip; disclaimer/policy lives in Hub. */}
         </div>
       ) : (
-        <div className="grid gap-3">
-          <Card className="p-3" title={tSafe(t, "b2.factors", L("요인 (기간)", "Period Factors"))} subtitle={`${tSafe(t, "b2.factorsSub", L("요인(6D) + 맵", "Factors (6D) + map"))}`}>
+        <div className="grid gap-4">
+          <Card title={tSafe(t, "b2.factors", L("요인 (기간)", "Period Factors"))} subtitle={`${tSafe(t, "b2.factorsSub", L("요인(6D) + 맵", "Factors (6D) + map"))} · ${lbKey}`}>
             {dataMissing ? (
               <div className="py-6 text-sm text-white/60">
                 {tSafe(t, "ui.dataMissing", L("데이터가 없어 표시할 수 없습니다. (Actions에서 데이터 업데이트를 실행하세요)", "Data is missing. (Run a data update workflow in Actions)"))}
               </div>
             ) : (
-              <FactorBars V={viewModel?.V} raw={periodDaily?.inputsRaw ?? dailyRoot?.inputsRaw ?? dailyRoot?.meta?.inputsRaw ?? null} lang={lang} />
+              <FactorBars V={viewModel?.V} raw={periodDaily?.inputsRaw ?? dailyRoot?.inputsRaw ?? dailyRoot?.meta?.inputsRaw ?? null} />
             )}
           </Card>
 
-          <Card className="p-3" title={tSafe(t, "ui.quadrant", L("포지션 맵", "Position Map"))} subtitle={tSafe(t, "quadrant.subtitle", L("성장↔방어, 유입↔유출", "Growth↔Defense, Inflow↔Outflow"))}>
+          <Card title={tSafe(t, "ui.quadrant", L("포지션 맵", "Position Map"))} subtitle={tSafe(t, "quadrant.subtitle", L("성장↔방어, 유입↔유출", "Growth↔Defense, Inflow↔Outflow"))}>
             <div className="relative w-full aspect-[16/9] rounded-2xl bg-white/5 border border-white/10 overflow-hidden">
               <div className="absolute inset-0">
                 <div className="absolute left-1/2 top-0 bottom-0 w-px bg-white/10" />
