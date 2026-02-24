@@ -532,8 +532,15 @@ const zShortDaily = Number.isFinite(intraday?.zShort) ? intraday.zShort : Number
       tags,
       meta,
 
+      // Period packs (20D/60D/252D) for B-page switching.
+      // Attached by the fetch/normalize layer when available.
+      periods: meta?.periods ?? null,
+
       ts: new Date(),
     };
+
+    // When building nested period packs, return without touching state.
+    if (meta?.returnOnly) return snapshot;
 
     setDaily(snapshot);
 
@@ -869,20 +876,49 @@ healthRef.current = { ...healthRef.current, sources };
     // intraday first (so daily can use corrAvg if present)
     setIntradayFromLatest(latest);
 
+    const metaBase = {
+      source: latest?.dataHealth?.source ?? "actions",
+      dataHealthLevel: latest?.dataHealth?.level ?? null,
+      asOf: latest?.asOf ?? null,
+      lastTradingDay: latest?.lastTradingDay ?? null,
+      latencyMs: latest?.latencyMs ?? null,
+      latencyMin: latest?.latencyMin ?? null,
+      cached: Boolean(latest?.cached),
+      intraday: latest?.intraday ?? null,
+      eventWindowActive: Boolean(latest?.eventWindowActive),
+      schema: norm?.schema ?? null,
+      fetchedAt: new Date().toISOString(),
+    };
+
+    // Build period packs from schema v2.3 daily_latest.json (periods[20D/60D/252D].featuresZ)
+    const periodsComputed = {};
+    try {
+      const p = latest?.periods || null;
+      if (p && typeof p === "object") {
+        ["20D", "60D", "252D"].forEach((k) => {
+          const fz = p?.[k]?.featuresZ;
+          if (!fz) return;
+          const snap = buildDailyFromFeatures({
+            featuresZ: fz,
+            meta: { ...metaBase, lookbackKey: k, returnOnly: true },
+          });
+          if (snap) periodsComputed[k] = snap;
+        });
+      }
+    } catch (e) {
+      logger.warn("data.periods_build_failed", { message: e?.message });
+    }
+
+    // Home (A) uses 60D by default (falls back gracefully).
+    const preferredKey = periodsComputed["60D"] ? "60D" : (periodsComputed["252D"] ? "252D" : (periodsComputed["20D"] ? "20D" : null));
+    const preferredFZ = (preferredKey && latest?.periods?.[preferredKey]?.featuresZ) ? latest.periods[preferredKey].featuresZ : latest.featuresZ;
+
     buildDailyFromFeatures({
-      featuresZ: latest.featuresZ,
+      featuresZ: preferredFZ,
       meta: {
-        source: latest?.dataHealth?.source ?? "actions",
-        dataHealthLevel: latest?.dataHealth?.level ?? null,
-        asOf: latest?.asOf ?? null,
-        lastTradingDay: latest?.lastTradingDay ?? null,
-        latencyMs: latest?.latencyMs ?? null,
-        latencyMin: latest?.latencyMin ?? null,
-        cached: Boolean(latest?.cached),
-        intraday: latest?.intraday ?? null,
-        eventWindowActive: Boolean(latest?.eventWindowActive),
-        schema: norm?.schema ?? null,
-        fetchedAt: new Date().toISOString(),
+        ...metaBase,
+        lookbackKey: preferredKey || null,
+        periods: Object.keys(periodsComputed).length ? periodsComputed : null,
       },
     });
 

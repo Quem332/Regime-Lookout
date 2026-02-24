@@ -70,10 +70,20 @@ export function PageHome({ api, tab, setTab, t, lang }) {
   const status = vm.raw?.status ?? vm.status ?? null;
 
   const asOf = vm.meta?.asOf ?? daily?.meta?.asOf ?? "";
-  const fmtAsOfDate = (s) => {
-    if (!s || typeof s !== "string") return "";
-    if (s.includes("T")) return s.split("T")[0];
-    return s;
+  const lookbackKey = daily?.meta?.lookbackKey ?? null;
+  const fmtAsOfStamp = (s) => {
+    try {
+      if (!s || typeof s !== "string") return "";
+      // Show the final computed timestamp in UTC (e.g. 2026-02-24T05:00) + lookback key.
+      const d = new Date(s);
+      if (Number.isNaN(d.getTime())) {
+        return lookbackKey ? `${s} (${lookbackKey})` : s;
+      }
+      const iso = d.toISOString().slice(0, 16);
+      return lookbackKey ? `${iso} (${lookbackKey})` : iso;
+    } catch {
+      return "";
+    }
   };
   const marketOpen = Boolean(vm.raw?.marketOpen ?? status?.marketOpen ?? false);
   const countdown = vm.raw?.timers?.countdown ?? status?.timers?.countdown ?? "--:--";
@@ -202,7 +212,7 @@ export function PageHome({ api, tab, setTab, t, lang }) {
                 <div className="text-xs text-white/70">
                   {tSafe(t, "score.regime", L("레짐", "Regime"))} {String(regime7)}
                 </div>
-                <div className="text-xs text-white/60">{fmtAsOfDate(asOf) || "--"}</div>
+                <div className="text-xs text-white/60">{fmtAsOfStamp(asOf) || "--"}</div>
               </div>
             </div>
 

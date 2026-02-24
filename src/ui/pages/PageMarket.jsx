@@ -77,10 +77,10 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
   const dailyRoot = daily ?? null;
   const dailyPeriods = dailyRoot?.periods ?? null;
   const sources = api?.health?.sources ?? null;
-  const pendingPeriods = ["20d","60d","252d"].filter((k)=>{
-    const available = !!dailyPeriods?.[k] || (!dailyPeriods && k==="20d");
+  const pendingPeriods = ["20D", "60D", "252D"].filter((k) => {
+    const available = !!dailyPeriods?.[k] || (!dailyPeriods && k === "20D");
     return !available;
-  }).map((k)=>k.toUpperCase());
+  });
   const lbKey = String(lookback || "20d").toUpperCase(); // "20D"
   const periodDaily = (dailyPeriods && dailyPeriods[lbKey]) ? dailyPeriods[lbKey] : (!dailyPeriods && lbKey === "20D" ? dailyRoot : null);
 
@@ -187,21 +187,11 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
         </div>
       </div>
 
-      {(pendingPeriods.length > 0 || (sources && sources.mode === "legacy")) && (
-        <div className="mb-3 text-[11px] text-white/55">
-          <div className="font-medium text-white/70">Data diagnostics</div>
-          {pendingPeriods.length > 0 && (
-            <div>
-              Missing periods: <span className="text-white/80">{pendingPeriods.join(", ")}</span> (shows 준비중)
-            </div>
-          )}
-          {sources && (
-            <div className="text-white/45">
-              mode={sources.mode} · daily={sources.daily?.url || "-"} · intraday={sources.intraday?.url || "-"} · legacy={sources.legacy?.url || "-"}
-            </div>
-          )}
+      {sources && sources.mode === "legacy" ? (
+        <div className="mb-3 text-[11px] text-white/45">
+          mode={sources.mode} · legacy={sources.legacy?.url || "-"}
         </div>
-      )}
+      ) : null}
 
       {view === "b1" ? (
         <div className="grid gap-3">
@@ -268,10 +258,10 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
               </div>
 
               {/* Edge labels (more intuitive than corners) */}
-              <div className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-white/60">{t?.("quadrant.defense", "Defense") ?? "Defense"}</div>
-              <div className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-white/60">{t?.("quadrant.growth", "Growth") ?? "Growth"}</div>
-              <div className="absolute left-1/2 top-2 -translate-x-1/2 text-[10px] text-white/60">{t?.("quadrant.inflow", "Inflow") ?? "Inflow"}</div>
-              <div className="absolute left-1/2 bottom-2 -translate-x-1/2 text-[10px] text-white/60">{t?.("quadrant.outflow", "Outflow") ?? "Outflow"}</div>
+              <div className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-white/60">{tSafe(t, "quadrant.defense", L("방어", "Defense"))}</div>
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-white/60">{tSafe(t, "quadrant.growth", L("성장", "Growth"))}</div>
+              <div className="absolute left-1/2 top-2 -translate-x-1/2 text-[10px] text-white/60">{tSafe(t, "quadrant.inflow", L("유입", "Inflow"))}</div>
+              <div className="absolute left-1/2 bottom-2 -translate-x-1/2 text-[10px] text-white/60">{tSafe(t, "quadrant.outflow", L("유출", "Outflow"))}</div>
 
               <div
                 className="absolute w-3 h-3 rounded-full bg-white/70 shadow"
