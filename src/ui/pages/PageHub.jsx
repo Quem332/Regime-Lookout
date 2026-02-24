@@ -68,6 +68,7 @@ export function PageHub({ api, t, lang, onToggleLang }) {
             probs: daily?.probs ?? null,
             tags: daily?.tags ?? null,
             V: daily?.V ?? null,
+            periods: daily?.periods ?? null,
             meta: daily?.meta ?? null,
           }
         : null,

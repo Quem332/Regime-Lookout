@@ -183,7 +183,16 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
       </div>
       {view === "b1" ? (
         <div className="grid gap-3">
-          <Card title={tSafe(t, "b1.title", L("기간 해석", "Period Interpretation"))} subtitle={tSafe(t, "b1.subtitle", L("구조 + 분포 (점수 없음)", "Structure + distribution (no score)"))}>
+          <Card title={tSafe(t, "b1.title", L("기간 해석", "Period Interpretation"))} subtitle={tSafe(t, "b1.subtitle", L("구조 + 분포", "Structure + distribution"))}>
+
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-white/70">
+              <div className="tabular-nums">
+                {tSafe(t, "score.regime", L("레짐", "Regime"))}: {String(periodDaily?.regime7 ?? "--")} ({lbKey})
+              </div>
+              <div className="tabular-nums">
+                {tSafe(t, "score.titleTop", L("점수", "Score"))}: {Number.isFinite(periodDaily?.score) ? Math.round(periodDaily.score) : "--"} · {tSafe(t, "score.reliability", L("신뢰도", "Reliability"))}: {Number.isFinite(periodDaily?.Cfinal) ? Math.round(periodDaily.Cfinal) : "--"}
+              </div>
+            </div>
             <div className="text-sm text-white/85 leading-snug">
   {periodCopy?.summary ?? "--"}
 </div>

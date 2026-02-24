@@ -203,33 +203,6 @@ export function PageHome({ api, tab, setTab, t, lang }) {
               />
             </div>
           </Card>
-
-          <Card title={tSafe(t, "ui.probabilities", L("시나리오 확률", "Scenario Probabilities"))} subtitle={tSafe(t, "daily.topScenario", L("확률 분포", "Probability distribution"))}>
-            <div className="space-y-2">
-              {probList.length ? (
-                probList.map(([k, obj]) => {
-                  const label = t?.(`scenarios.${k}`, `S${k}`) ?? `S${k}`;
-                  const pct = Math.round(obj.p * 100);
-                  const cShown = Number.isFinite(obj.c) ? obj.c : Cfinal;
-                  return (
-                    <div key={k} className="space-y-1">
-                      <div className="flex items-center justify-between text-xs text-white/80">
-                        <span className="truncate">{label}</span>
-                        <span className="tabular-nums">
-                          {`${W_PROB} ${pct}%`}{Number.isFinite(cShown) ? ` · ${W_CONF} ${Math.round(cShown)}` : ""}
-                        </span>
-                      </div>
-                      <div className="h-2 rounded-full bg-white/10 overflow-hidden">
-                        <div className="h-full rounded-full bg-white/30" style={{ width: `${pct}%` }} />
-                      </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <span className="text-xs text-white/60">--</span>
-              )}
-            </div>
-          </Card>
         </div>
       ) : (
         // A-2 (Intraday) — always accessible (no lock overlay)
@@ -237,9 +210,6 @@ export function PageHome({ api, tab, setTab, t, lang }) {
 
           <Card title={tSafe(t, "a2.factors", L("요인 (6D)", "Factors (6D)"))} subtitle={tSafe(t, "a2.factorsSub", L("z-score + raw", "z-score + raw snapshot"))}>
             <FactorBars lang={lang} V={daily?.V} raw={api?.mri?.inputsRaw ?? api?.mri?.daily?.inputsRaw ?? api?.mri?.meta?.inputsRaw} />
-            <div className="mt-2 text-[11px] text-white/55">
-              {tSafe(t, "bars.note", L("※ 바는 표준화(z) 기준입니다. VOO는 +면 유입(상승), -면 유출(하락)로 해석합니다.", "※ Bars are standardized (z). For VOO: + = inflow (up), - = outflow (down)."))}
-            </div>
           </Card>
 
           <Card title={tSafe(t, "ui.quadrant", L("포지션 맵", "Position Map"))} subtitle={tSafe(t, "quadrant.subtitle", L("성장↔방어, 유입↔유출", "Growth↔Defense, Inflow↔Outflow"))}>

@@ -259,6 +259,21 @@ export const I18N = {
       cleared: "로컬 저장소를 초기화했습니다.",
       copyFailed: "복사 실패.",
     },
+
+    // Period interpretation (B-1)
+    "period.summary.r7": "이 기간에서는 구조가 혼재/정의 불가 상태입니다. 확신도를 낮추고 분포 중심으로 해석하세요.",
+    "period.summary.dispersed": "시나리오 확률이 분산되어 있습니다. 단일 스토리로 단정하지 말고 태그/분포를 함께 보세요.",
+    "period.summary.lowc": "신호는 있으나 신뢰도가 제한됩니다. 문구/해석을 보수적으로 유지하세요.",
+    "period.summary.base": "구조가 비교적 일관적입니다. 태그/분포를 통해 동인을 확인하세요.",
+    "period.warn.verylow": "신뢰도 매우 낮음: 단정 대신 분포를 우선하고 구조가 정리될 때까지 기다리세요.",
+    "period.warn.low": "신뢰도 낮음: 어떤 내러티브도 잠정적으로만 받아들이세요.",
+    "period.warn.dispersed": "분산이 큼: 레짐 라벨이 안정적으로 보여도 시나리오 확신은 약합니다.",
+    "period.reasons.top": "상위 시나리오",
+    "period.reasons.entropy": "분산도(엔트로피)",
+    "period.reasons.regime": "레짐",
+    "period.btn.pending": "준비중",
+    "period.pending": "데이터 준비 중",
+    "ui.dataMissing": "데이터가 없어 표시할 수 없습니다. (Actions에서 데이터 업데이트를 실행하세요)",
     scenarios: {
       1: "건전한 조정",
       2: "패닉 붕괴",

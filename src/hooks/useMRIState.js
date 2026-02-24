@@ -70,6 +70,67 @@ async function fetchJson(url, { timeoutMs = 12_000, retries = 2 } = {}) {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeoutMs);
     const started = performance.now();
+
+    const computeDailyPack = (featuresZPack, metaPack) => {
+      const V = [featuresZPack.x, featuresZPack.y, featuresZPack.rates, featuresZPack.usd, featuresZPack.vix, featuresZPack.goldFear].map((v) => num(v, 0));
+
+      const latencyMinPack = metaPack?.latencyMin ?? metaPack?.latencyMinutes ?? metaPack?.latency ?? null;
+      const healthLevelPack = metaPack?.dataHealth?.level ?? metaPack?.dataHealthLevel ?? null;
+
+      const dataOk =
+        Number.isFinite(latencyMinPack) ? latencyMinPack <= 30 : true;
+      const dataOkFinal =
+        dataOk && !["BAD", "DOWN", "ERROR"].includes(String(healthLevelPack ?? "").toUpperCase());
+
+      const corrAvgDaily = intraday?.corrAvg ?? metaPack?.intraday?.corrAvg ?? upperTriangleAvgCorrMock();
+      const corrSurgeDaily = Boolean(intraday?.corrSurge ?? metaPack?.intraday?.corrSurge ?? false);
+      const zShortDaily = Number.isFinite(intraday?.zShort) ? intraday.zShort : Number.isFinite(metaPack?.intraday?.zShort) ? metaPack.intraday.zShort : 0;
+
+      const { probs, passedKeys } = computeProbabilitiesSpec(V);
+      const rel = computeReliabilityCSpec({ dataOk: dataOkFinal, corrAvg: corrAvgDaily, corrSurge: corrSurgeDaily, zShort: zShortDaily, V, probs });
+      const Cfinal = rel.C;
+      const regime7 = computeRegime7Spec({ passedKeys, Cfinal, V });
+      const scorePack = computeTodayScoreSpec({ probs, Cfinal, corrAvg: corrAvgDaily, V, regime7 });
+
+      const topEntry = Object.entries(probs).sort((a, b) => b[1] - a[1])[0];
+      const topK = topEntry ? Number(topEntry[0]) : null;
+
+      const tags = buildReasoningTags({ V, corrAvg: corrAvgDaily, corrSurge: corrSurgeDaily, zShort: zShortDaily, probs, Cfinal });
+
+      const latestLike =
+        latestRef.current ||
+        {
+          featuresZ: featuresZPack,
+          intraday: metaPack?.intraday ?? null,
+          dataHealth: { level: metaPack?.dataHealthLevel ?? null },
+        };
+
+      return {
+        scenario: buildScenarioPackFromIntraday(latestLike),
+        V,
+        probs,
+        passedKeys,
+        topK,
+        topProb: scorePack.pTop,
+        Cfinal,
+        caps: rel.caps,
+        regime7,
+        asOf: metaPack?.asOf ?? null,
+        regime: (regime7 ?? (topK != null ? String(topK) : null)),
+        score: scorePack.score,
+        pEff: scorePack.pEff,
+        penaltyApplied: scorePack.penaltyApplied,
+        flags: scorePack.flags,
+        lastTradingDay: metaPack?.lastTradingDay ?? null,
+        fetchedAt: metaPack?.fetchedAt ?? null,
+        source: metaPack?.source ?? null,
+        dataHealthLevel: metaPack?.dataHealthLevel ?? null,
+        corrAvgDaily,
+        tags,
+        meta: metaPack,
+        ts: new Date(),
+      };
+    };
     try {
       logger.debug("net.fetch_start", { url, attempt, timeoutMs });
       const res = await fetch(url, {
@@ -440,84 +501,34 @@ export function useMRIState() {
   const latestRef = useRef(null); // last latest.json payload
   const calRef = useRef({ events: [], loaded: false });
   const healthRef = useRef({ lastOkAt: null, lastError: null, lastErrorAt: null, schema: null });
-  const buildDailyFromFeatures = ({ featuresZ, meta }) => {
+  const buildDailyFromFeatures = ({ featuresZ, periods, meta }) => {
     const started = performance.now();
-    const V = [featuresZ.x, featuresZ.y, featuresZ.rates, featuresZ.usd, featuresZ.vix, featuresZ.goldFear].map((v) => num(v, 0));
+    const baseSnapshot = computeDailyPack(featuresZ, meta);
 
-    const isAllZeroV = V.every((v) => v === 0);
+    // Guard against all-zero vectors (keeps UI stable if data got corrupted)
+    const isAllZeroV = Array.isArray(baseSnapshot?.V) && baseSnapshot.V.every((v) => v === 0);
     if (isAllZeroV && daily && daily?.meta?.dataHealthLevel !== "MOCK") {
       return;
     }
 
-    const latencyMin = meta?.latencyMin ?? meta?.latencyMinutes ?? meta?.latency ?? null;
-const healthLevel = meta?.dataHealth?.level ?? meta?.dataHealthLevel ?? null;
+    // Expand per-lookback packs (20D/60D/252D) if provided by daily_latest.json
+    let periodPacks = null;
+    try {
+      if (periods && typeof periods === "object") {
+        periodPacks = {};
+        for (const [k, v] of Object.entries(periods)) {
+          const key = String(k || "").toUpperCase();
+          const fz = v?.featuresZ;
+          if (!fz || typeof fz !== "object") continue;
+          periodPacks[key] = computeDailyPack(fz, { ...meta, lookbackKey: key });
+        }
+      }
+    } catch (e) {
+      logger.warn("state.daily_periods_build_failed", { message: e?.message });
+      periodPacks = null;
+    }
 
-// Data considered OK if not stale and not explicitly marked bad.
-const dataOk =
-  Number.isFinite(latencyMin) ? latencyMin <= 30 : true;
-const dataOkFinal =
-  dataOk && !["BAD", "DOWN", "ERROR"].includes(String(healthLevel ?? "").toUpperCase());
-    const corrAvgDaily = intraday?.corrAvg ?? meta?.intraday?.corrAvg ?? upperTriangleAvgCorrMock();
-
-const corrSurgeDaily = Boolean(intraday?.corrSurge ?? meta?.intraday?.corrSurge ?? false);
-const zShortDaily = Number.isFinite(intraday?.zShort) ? intraday.zShort : Number.isFinite(meta?.intraday?.zShort) ? meta.intraday.zShort : 0;
-
-
-    const { probs, passedKeys } = computeProbabilitiesSpec(V);
-    const rel = computeReliabilityCSpec({ dataOk: dataOkFinal, corrAvg: corrAvgDaily, corrSurge: corrSurgeDaily, zShort: zShortDaily, V, probs });
-    const Cfinal = rel.C;
-    const regime7 = computeRegime7Spec({ passedKeys, Cfinal, V });
-    const scorePack = computeTodayScoreSpec({ probs, Cfinal, corrAvg: corrAvgDaily, V, regime7 });
-
-    const topEntry = Object.entries(probs).sort((a, b) => b[1] - a[1])[0];
-    const topK = topEntry ? Number(topEntry[0]) : null;
-
-    const tags = buildReasoningTags({ V, corrAvg: corrAvgDaily, corrSurge: corrSurgeDaily, zShort: zShortDaily, probs, Cfinal });
-
-    // buildScenarioPackFromIntraday expects a "latest-like" payload (featuresZ + intraday + dataHealth).
-    // During daily rebuild, the normalized payload lives in latestRef.current; fall back to the inputs we have
-    // to avoid ReferenceError("latest is not defined") and to keep the UI stable.
-    const latestLike =
-      latestRef.current ||
-      {
-        featuresZ,
-        intraday: meta?.intraday ?? null,
-        dataHealth: { level: meta?.dataHealthLevel ?? null },
-      };
-
-    const snapshot = {
-      scenario: buildScenarioPackFromIntraday(latestLike),
-      // core outputs
-      V,
-      probs,
-      passedKeys,
-      topK,
-      topProb: scorePack.pTop,
-      Cfinal,
-      caps: rel.caps,
-      regime7,
-      // UI-friendly fields (legacy UIs expect these at top-level)
-      asOf: meta?.asOf ?? null,
-      regime: (regime7 ?? (topK != null ? String(topK) : null)),
-      score: scorePack.score,
-      pEff: scorePack.pEff,
-      penaltyApplied: scorePack.penaltyApplied,
-      flags: scorePack.flags,
-
-      // convenience fields for UI/export (avoid deep meta chains)
-      asOf: meta?.asOf ?? null,
-      lastTradingDay: meta?.lastTradingDay ?? null,
-      fetchedAt: meta?.fetchedAt ?? null,
-      source: meta?.source ?? null,
-      dataHealthLevel: meta?.dataHealthLevel ?? null,
-
-      // diagnostics
-      corrAvgDaily,
-      tags,
-      meta,
-
-      ts: new Date(),
-    };
+    const snapshot = { ...baseSnapshot, periods: periodPacks };
 
     setDaily(snapshot);
 
@@ -528,24 +539,30 @@ const zShortDaily = Number.isFinite(intraday?.zShort) ? intraday.zShort : Number
 
 // Self-checks (helps catch corrupted data / engine regressions)
 try {
-  const sumP = Object.values(probs).reduce((a,b)=>a+(typeof b==="number"?b:0),0);
-  if (!Number.isFinite(sumP) || Math.abs(sumP - 1) > 0.02) {
-    logger.warn("engine.prob_sum_suspicious", { sumP, probs });
+  const probs0 = snapshot?.probs ?? null;
+  const sumP = probs0 && typeof probs0 === "object"
+    ? Object.values(probs0).reduce((a,b)=>a+(typeof b==="number"?b:0),0)
+    : null;
+  if (sumP != null && (!Number.isFinite(sumP) || Math.abs(sumP - 1) > 0.02)) {
+    logger.warn("engine.prob_sum_suspicious", { sumP, probs: probs0 });
   }
-  if (!Number.isFinite(Cfinal) || Cfinal < 0 || Cfinal > 100) {
-    logger.warn("engine.confidence_out_of_range", { Cfinal, caps: rel.caps });
+  const c0 = snapshot?.Cfinal;
+  if (!Number.isFinite(c0) || c0 < 0 || c0 > 100) {
+    logger.warn("engine.confidence_out_of_range", { Cfinal: c0 });
   }
 } catch (e) {
   logger.warn("engine.selfcheck_failed", { message: e?.message });
 }
+
     logger.debug("state.daily_refresh_ok", {
       ms: Math.round(performance.now() - started),
-      topK,
-      score: scorePack.score,
-      Cfinal,
-      regime7,
+      topK: snapshot?.topK ?? null,
+      score: snapshot?.score ?? null,
+      Cfinal: snapshot?.Cfinal ?? null,
+      regime7: snapshot?.regime7 ?? null,
       asOf: meta?.asOf,
       source: meta?.source,
+      periodsBuilt: snapshot?.periods ? Object.keys(snapshot.periods).length : 0,
     });
   };
   const buildScenarioPackFromIntraday = (latest) => {
@@ -724,6 +741,7 @@ try {
 
     buildDailyFromFeatures({
       featuresZ: latest.featuresZ,
+      periods: latest.periods,
       meta: {
         source: latest?.dataHealth?.source ?? "actions",
         dataHealthLevel: latest?.dataHealth?.level ?? null,
