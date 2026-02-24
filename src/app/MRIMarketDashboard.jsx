@@ -62,6 +62,23 @@ export function MRIMarketDashboard() {
   // Swipe-only loop navigation. (No tap-to-cycle.)
   const nav = useH3DragNav({ initialIndex: 0, thresholdPx: 110, tapToCycle: false, edgeSwipePx: 24 });
 
+  // Reset inner tabs when switching top-level pages
+  const prevIndexRef = useRef(nav.index);
+  useEffect(() => {
+    const prev = prevIndexRef.current;
+    const cur = nav.index;
+
+    // When leaving a page, reset its sub-tab so it always opens to the default next time.
+    if (prev === 0 && cur !== 0) setHomeTab("a1");
+    if (prev === 1 && cur !== 1) setMarketTab("b1");
+
+    // Also force default on enter (defensive; covers any external nav.goTo calls).
+    if (cur === 0) setHomeTab("a1");
+    if (cur === 1) setMarketTab("b1");
+
+    prevIndexRef.current = cur;
+  }, [nav.index]);
+
 // Auto default page:
 // - Off-hours -> start on MARKET (B pages), since HOME intraday is mostly locked/empty.
 // - During market hours -> keep HOME.

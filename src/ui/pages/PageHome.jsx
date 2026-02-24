@@ -47,21 +47,6 @@ function parseProbEntry(v) {
   return { p: null, c: null };
 }
 
-function formatAsOfShortUtc(asOf) {
-  try {
-    const d = new Date(asOf);
-    if (!Number.isFinite(d.getTime())) return String(asOf || "");
-    const yyyy = d.getUTCFullYear();
-    const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-    const dd = String(d.getUTCDate()).padStart(2, "0");
-    const hh = String(d.getUTCHours()).padStart(2, "0");
-    const mi = String(d.getUTCMinutes()).padStart(2, "0");
-    return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
-  } catch {
-    return String(asOf || "");
-  }
-}
-
 export function PageHome({ api, tab, setTab, t, lang }) {
   const isKo = String(lang || "").toLowerCase().startsWith("ko");
   const L = (ko, en) => (isKo ? ko : en);
@@ -71,22 +56,11 @@ export function PageHome({ api, tab, setTab, t, lang }) {
 
   const vm = useMemo(() => buildMriViewModel({ api, t }), [api, t]);
 
-  const dailyRaw = vm.raw?.daily ?? vm.daily ?? null;
+  const daily = vm.raw?.daily ?? vm.daily ?? null;
   const intraday = vm.raw?.intraday ?? vm.intraday ?? null;
   const status = vm.raw?.status ?? vm.status ?? null;
 
-  // Home default: show a "medium-horizon" daily snapshot.
-  // - 20D can be too twitchy for non-experts
-  // - 252D can be too slow to reflect recent shifts
-  // So 60D is a good default.
-  const HOME_LOOKBACK_KEY = "60D";
-  const daily = dailyRaw?.periods?.[HOME_LOOKBACK_KEY] ?? dailyRaw;
-
-  const asOfRaw = vm.meta?.asOf ?? daily?.meta?.asOf ?? daily?.asOf ?? "";
-  const asOfLabel = formatAsOfShortUtc(asOfRaw);
-  const asOfWithLookback = dailyRaw?.periods?.[HOME_LOOKBACK_KEY]
-    ? `${asOfLabel} (${HOME_LOOKBACK_KEY})`
-    : asOfLabel;
+  const asOf = vm.meta?.asOf ?? daily?.meta?.asOf ?? "";
   const marketOpen = Boolean(vm.raw?.marketOpen ?? status?.marketOpen ?? false);
   const countdown = vm.raw?.timers?.countdown ?? status?.timers?.countdown ?? "--:--";
 
@@ -209,7 +183,7 @@ export function PageHome({ api, tab, setTab, t, lang }) {
                 <div className="text-xs text-white/70">
                   {tSafe(t, "score.regime", L("레짐", "Regime"))} {String(regime7)}
                 </div>
-                <div className="text-xs text-white/60">{asOfWithLookback || "--"}</div>
+                <div className="text-xs text-white/60">{asOf || "--"}</div>
               </div>
             </div>
 
@@ -245,10 +219,10 @@ export function PageHome({ api, tab, setTab, t, lang }) {
                 <div className="absolute top-1/2 left-0 right-0 h-px bg-white/10" />
               </div>
 
-              <div className="absolute left-3 top-2 text-[10px] text-white/60">{tSafe(t, "quadrant.defense", L("방어", "Defense"))}</div>
-              <div className="absolute right-3 top-2 text-[10px] text-white/60">{tSafe(t, "quadrant.growth", L("성장", "Growth"))}</div>
-              <div className="absolute left-3 bottom-2 text-[10px] text-white/60">{tSafe(t, "quadrant.outflow", L("유출", "Outflow"))}</div>
-              <div className="absolute right-3 bottom-2 text-[10px] text-white/60">{tSafe(t, "quadrant.inflow", L("유입", "Inflow"))}</div>
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] text-white/60">{tSafe(t, "quadrant.defense", L("방어", "Defense"))}</div>
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-white/60">{tSafe(t, "quadrant.growth", L("성장", "Growth"))}</div>
+              <div className="absolute left-1/2 bottom-2 -translate-x-1/2 text-[10px] text-white/60">{tSafe(t, "quadrant.outflow", L("유출", "Outflow"))}</div>
+              <div className="absolute left-1/2 top-2 -translate-x-1/2 text-[10px] text-white/60">{tSafe(t, "quadrant.inflow", L("유입", "Inflow"))}</div>
 
               <div
                 className="absolute w-3 h-3 rounded-full bg-white/70 shadow"

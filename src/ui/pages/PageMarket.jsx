@@ -214,12 +214,11 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
                   const label = t?.(`scenarios.${k}`, `S${k}`) ?? `S${k}`;
                   const pp = probParts(v);
                         const pct = Math.round((pp.p ?? 0) * 100);
-                        const ci = Number.isFinite(pp.c) ? pp.c : (Number.isFinite(periodDaily?.Cfinal) ? periodDaily.Cfinal : null);
-                  return (
+                        return (
                     <div key={k} className="space-y-1">
                       <div className="flex items-center justify-between text-xs text-white/80">
                         <span className="truncate">{label}</span>
-                        <span className="tabular-nums">{`${W_PROB} ${pct}%`}{Number.isFinite(ci) ? ` · ${W_CONF} ${Math.round(ci)}` : ""}</span>
+                        <span className="tabular-nums">{`${W_PROB} ${pct}%`}</span>
                       </div>
                       <div className="h-2 rounded-full bg-white/10 overflow-hidden">
                         <div className="h-full rounded-full bg-white/30" style={{ width: `${pct}%` }} />
@@ -254,10 +253,10 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
                 <div className="absolute top-1/2 left-0 right-0 h-px bg-white/10" />
               </div>
 
-              <div className="absolute left-3 top-2 text-[10px] text-white/60">{t?.("quadrant.defense", "Defense") ?? "Defense"}</div>
-              <div className="absolute right-3 top-2 text-[10px] text-white/60">{t?.("quadrant.growth", "Growth") ?? "Growth"}</div>
-              <div className="absolute left-3 bottom-2 text-[10px] text-white/60">{t?.("quadrant.outflow", "Outflow") ?? "Outflow"}</div>
-              <div className="absolute right-3 bottom-2 text-[10px] text-white/60">{t?.("quadrant.inflow", "Inflow") ?? "Inflow"}</div>
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] text-white/60">{tSafe(t, "quadrant.defense", L("방어", "Defense"))}</div>
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-white/60">{tSafe(t, "quadrant.growth", L("성장", "Growth"))}</div>
+              <div className="absolute left-1/2 bottom-2 -translate-x-1/2 text-[10px] text-white/60">{tSafe(t, "quadrant.outflow", L("유출", "Outflow"))}</div>
+              <div className="absolute left-1/2 top-2 -translate-x-1/2 text-[10px] text-white/60">{tSafe(t, "quadrant.inflow", L("유입", "Inflow"))}</div>
 
               <div
                 className="absolute w-3 h-3 rounded-full bg-white/70 shadow"
