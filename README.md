@@ -1,30 +1,32 @@
 # Regime-Lookout — MRI Market Interpretation Engine
-**Mobile-first risk-aware market interpretation system based on the MRI framework.**  
+**Mobile-first risk-aware market interpretation system based on the MRI framework.**
 모바일 중심 MRI(Market Regime Interpreter) 기반 시장 해석 시스템.
 
 ## Overview | 개요
-**Regime-Lookout is not a prediction model and does not provide trading signals.**  
+**Regime-Lookout is not a prediction model and does not provide trading signals.**
 It interprets macro-financial conditions to describe the current market regime.
 
 * **Regime-Lookout은 예측 모델이 아니며 종목 추천 시스템도 아닙니다.**
 * 현재 매크로 환경을 분석해 지금 시장 상태를 해석합니다.
 
-The goal is behavioral stability through structured interpretation of macro signals.  
+The goal is behavioral stability through structured interpretation of macro signals.
 (매크로 신호를 구조화하여 감정적 투자 판단을 줄이는 것이 목표입니다.)
 
-The developer of this project is not formally trained in software engineering or economics.  
-This system was developed for personal use with the assistance of AI tools.  
-(본 프로젝트의 개발자는 소프트웨어 공학이나 경제학을 전공하지 않았으며, 개인적인 사용 목적을 위해 AI 도구의 도움을 받아 개발되었습니다.)
+
+The developer of this project is not formally trained in software engineering or economics.
+This system was developed for personal use with the assistance of AI tools.
+(본 프로젝트의 개발자는 소프트웨어 공학이나 경제학을 전공하지 않았으며,
+개인적인 사용 목적을 위해 AI 도구의 도움을 받아 개발되었습니다.)
 
 ---
 
 ## Core Principles | 핵심 철학
-1. **Interpretation over Prediction**
-   * 현재 시장 진단 중심.
-2. **Risk-Adjusted Confidence**
-   * 신호 충돌/데이터 불완전 시 자동 신뢰도 감소.
-3. **Behavior-First Design**
-   * 거래 신호가 아니라 의사결정 안정화 도구.
+1.  **Interpretation over Prediction**
+    * 현재 시장 진단 중심.
+2.  **Risk-Adjusted Confidence**
+    * 신호 충돌/데이터 불완전/장중 구조 불안정 시 자동 신뢰도 감소.
+3.  **Behavior-First Design**
+    * 거래 신호가 아니라 의사결정 안정화 도구.
 
 ---
 
@@ -40,7 +42,7 @@ Public Yahoo Finance data are standardized using rolling z-scores.
 * `vix` = z( VIX change )
 * `goldFear` = z(GLD) − 0.5*z(UUP)
 
-> ✔ Gold-USD decoupling 적용  
+> ✔ Gold-USD decoupling 적용
 > ✔ 달러 영향 제거 후 안전자산 신호 추출
 
 ### Regime Classification | 시장 레짐 분류
@@ -56,31 +58,27 @@ Distance-based probabilistic matching to predefined prototypes:
 *Single prediction is not used.* (확률 분포 형태로 출력됩니다.)
 
 ### Lookback Windows | 기간 설정
-Primary interpretation view uses a **60-day lookback window (60D)**,  
-with optional 20D and 252D comparison.  
+Primary interpretation view uses a **60-day lookback window (60D)**,
+with optional 20D and 252D comparison.
 (대표 해석 화면은 **60일(60D)**을 기본으로 사용하며, 20D/252D 비교를 제공합니다.)
 
 ### Confidence Engine | 신뢰도 엔진
-Confidence is computed using a **risk-adjusted reliability model**.
-
-Penalties are applied when cross-asset signals conflict, data quality is degraded,  
-or intraday structure becomes unstable.  
-(자산 간 신호 충돌, 데이터 품질 저하, 장중 구조 불안정 시 감점.)
-
+Confidence is reduced when cross-asset signals conflict.
 Examples of penalty triggers:
+
 * Risk-On + rising VIX
 * Goldilocks + weak gold response
 * Correlation surge across equities
 * Liquidity stress + USD spike
 * Divergent safe-asset behavior
 
-**Multiple triggers → larger penalty.**  
+**Multiple triggers → larger penalty.**
 (이벤트를 직접 탐지하지 않고도 지표 간 불일치로 신뢰도 조정.)
 
 Note:
-* Confidence represents overall interpretation reliability, **not scenario-specific confidence**.  
+* Confidence represents overall interpretation reliability, **not scenario-specific confidence**.
   (신뢰도는 “시나리오별”이 아니라 “전체 해석의 신뢰도” 지표입니다.)
-* End-of-day market latency does not automatically reduce confidence; freshness is evaluated using actual data update timestamps.  
+* End-of-day latency does not automatically reduce confidence; freshness is evaluated using actual data update timestamps.
   (단순 지연(latency)만으로 자동 감점하지 않고, 실제 업데이트 시점을 기준으로 freshness를 평가합니다.)
 
 ---
@@ -89,7 +87,7 @@ Note:
 * Today Score (0–100)
 * Regime probability distribution
 * Reasoning tags
-* Confidence level (regime-level reliability indicator)
+* Confidence level
 * *현재 시장 상태 설명만 제공.*
 
 ---
@@ -97,18 +95,13 @@ Note:
 ## Mobile-First Architecture | 모바일 중심 구조
 Regime-Lookout is designed as a serverless progressive web app.
 
-* **GitHub Actions** → `public/data/daily_latest.json` / `public/data/intraday_latest.json` 자동 갱신
-* **GitHub Pages** → Web App 배포
-* **Mobile Browser** → PWA 설치
+* **GitHub Actions** → `public/data/daily_latest.json` / `public/data/intraday_latest.json` automated updates
+* **GitHub Pages** → Web App
+* **Mobile Browser** → PWA install
 
-> ✔ 개인 서버 불필요  
-> ✔ 자동 데이터 업데이트  
+> ✔ 개인 서버 불필요
+> ✔ 자동 데이터 업데이트
 > ✔ 모바일 중심 UI
-
-### Language Support | 언어 지원
-Language is automatically detected on first visit based on browser settings (ko/en),  
-and user preference is stored locally for future sessions.  
-(첫 방문 시 **브라우저 언어(ko/en)를 감지**해 기본 언어를 설정하고, 이후에는 사용자 선택을 로컬에 저장하여 유지합니다.)
 
 ### Tech Stack
 * **Frontend:** React + Vite + PWA, IndexedDB snapshot caching, Swipe navigation without routing
@@ -117,26 +110,16 @@ and user preference is stored locally for future sessions.
 
 ---
 
-## Deployment / Update Flow | 배포 및 업데이트 흐름
+## Why This Matters | 왜 중요한가
+Investors face indicator overload and conflicting news.
+Regime-Lookout compresses macro complexity into a clear regime signal.
 
-### 1) Data Update (GitHub Actions) | 데이터 업데이트(액션)
-GitHub Actions runs scheduled jobs to refresh:
-* `public/data/daily_latest.json`
-* `public/data/intraday_latest.json`
-(and other support files if enabled)
+It helps users:
+* Pause when risk rises
+* Avoid panic selling
+* Avoid reckless FOMO
 
-If intraday data is missing or stale, the UI degrades safely (no “phantom intraday”).  
-(장중 데이터가 없거나 오래되면 UI는 안전하게 디그레이드되도록 설계되었습니다.)
-
-### 2) Upload / Deploy (Git Push) | 업로드/배포(푸시)
-Typical local workflow:
-
-```bash
-git add -A
-git commit -m "chore: update"
-git pull origin main --rebase
-git push origin main
-```
+(행동 안정화 도구로 설계되었습니다.)
 
 ---
 
@@ -144,3 +127,24 @@ git push origin main
 * Data source: Yahoo Finance via `yfinance`.
 * Data may be delayed or incomplete.
 * **Regime-Lookout is an analytical interpretation tool, not financial advice.**
+
+
+### Language Support | 언어 지원
+Language is automatically detected on first visit based on browser settings (ko/en),
+and user preference is stored locally for future sessions.
+(첫 방문 시 브라우저 언어를 감지하여 기본 언어를 설정하고,
+이후에는 사용자 선택을 로컬에 저장하여 유지합니다.)
+
+### Confidence Clarification | 신뢰도 설명
+Confidence represents overall interpretation reliability,
+not scenario-specific confidence.
+End-of-day latency alone does not automatically reduce confidence;
+freshness is evaluated using actual data update timestamps.
+
+## Project Status
+Active development.
+Current focus:
+* Mobile PWA stability
+* Confidence calibration
+* GitHub Actions data update
+* UI simplification

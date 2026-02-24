@@ -235,7 +235,7 @@ export function PageHome({ api, tab, setTab, t, lang }) {
         </div>
       ) : (
         // A-2 (Intraday)
-        <div className="grid gap-3">
+        <div className="grid gap-4">
 
           <Card title={tSafe(t, "a2.factors", L("요인 (6D)", "Factors (6D)"))} subtitle={tSafe(t, "a2.factorsSub", L("z-score + raw", "z-score + raw snapshot"))}>
             <FactorBars lang={lang} V={daily?.V} raw={api?.mri?.inputsRaw ?? api?.mri?.daily?.inputsRaw ?? api?.mri?.meta?.inputsRaw} />

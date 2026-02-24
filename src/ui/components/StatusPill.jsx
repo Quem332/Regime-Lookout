@@ -23,8 +23,8 @@ export function StatusPill({ market, timers, health, marketOpen, eventWindow, la
   const dataLabel = market?.label || "DATA --:--";
   const rawCountdown = timers?.countdown;
   const safeCountdown = typeof rawCountdown === "string" && !rawCountdown.includes("NaN") ? rawCountdown : null;
-  const nextPrefix = String(lang || "").startsWith("ko") ? "다음" : "NEXT";
-  const nextLabel = safeCountdown ? `${nextPrefix} ${safeCountdown}` : `${nextPrefix} --:--`;
+  const nextWord = String(lang || "").startsWith("ko") ? "다음" : "NEXT";
+  const nextLabel = safeCountdown ? `${nextWord} ${safeCountdown}` : `${nextWord} --:--`;
   const healthTone = toneToPill(health?.tone);
   return (
     <div className="flex items-center gap-2">

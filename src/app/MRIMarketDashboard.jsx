@@ -121,6 +121,7 @@ useEffect(() => {
             health={status?.health}
             marketOpen={status?.marketOpen}
             eventWindow={status?.eventWindow}
+            lang={lang}
           />
         </div>
       </div>

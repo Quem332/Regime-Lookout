@@ -477,18 +477,51 @@ export function useMRIState() {
     const dataOk = Number.isFinite(ageMinSinceFetch) ? ageMinSinceFetch <= 120 : true;
     const dataOkFinal =
       dataOk && !["BAD", "DOWN", "ERROR"].includes(String(healthLevel ?? "").toUpperCase());
-    const corrAvgDaily = intraday?.corrAvg ?? meta?.intraday?.corrAvg ?? upperTriangleAvgCorrMock();
-
+// Intraday overlay metrics (may be null outside market hours)
+const corrAvgDaily = intraday?.corrAvg ?? meta?.intraday?.corrAvg ?? upperTriangleAvgCorrMock();
 const corrSurgeDaily = Boolean(intraday?.corrSurge ?? meta?.intraday?.corrSurge ?? false);
-const zShortDaily = Number.isFinite(intraday?.zShort) ? intraday.zShort : Number.isFinite(meta?.intraday?.zShort) ? meta.intraday.zShort : 0;
+const zShortDaily = Number.isFinite(intraday?.zShort)
+  ? intraday.zShort
+  : Number.isFinite(meta?.intraday?.zShort)
+    ? meta.intraday.zShort
+    : 0;
 
+const { probs, passedKeys } = computeProbabilitiesSpec(V);
 
-    const { probs, passedKeys } = computeProbabilitiesSpec(V);
-    const rel = computeReliabilityCSpec({ dataOk: dataOkFinal, corrAvg: corrAvgDaily, corrSurge: corrSurgeDaily, zShort: zShortDaily, V, probs });
-    const Cfinal = rel.C;
-    const regime7 = computeRegime7Spec({ passedKeys, Cfinal, V });
-    const scorePack = computeTodayScoreSpec({ probs, Cfinal, corrAvg: corrAvgDaily, V, regime7 });
+// Reliability:
+// - baseC: regime-level reliability from the daily structure only (no intraday penalties)
+// - Cfinal: displayed confidence with intraday penalties when available
+const relBase = computeReliabilityCSpec({
+  dataOk: dataOkFinal,
+  corrAvg: upperTriangleAvgCorrMock(),
+  corrSurge: false,
+  zShort: 0,
+  V,
+  probs,
+});
+const baseC = relBase.C;
 
+const relLive = computeReliabilityCSpec({
+  dataOk: dataOkFinal,
+  corrAvg: corrAvgDaily,
+  corrSurge: corrSurgeDaily,
+  zShort: zShortDaily,
+  V,
+  probs,
+});
+const Cfinal = relLive.C;
+
+// Regime labeling uses the displayed confidence.
+const regime7 = computeRegime7Spec({ passedKeys, Cfinal, V });
+
+// Score: anchored to 60D daily structure; intraday can only nudge it within a small cap.
+const scoreBase = computeTodayScoreSpec({ probs, Cfinal: baseC, corrAvg: upperTriangleAvgCorrMock(), V, regime7 });
+const scoreLive = computeTodayScoreSpec({ probs, Cfinal, corrAvg: corrAvgDaily, V, regime7 });
+const scoreDelta = (Number(scoreLive?.score) || 0) - (Number(scoreBase?.score) || 0);
+const scoreFinal = (Number(scoreBase?.score) || 0) + clamp(scoreDelta, -3, 3);
+
+const scorePack = { ...scoreBase, score: scoreFinal };
+const rel = relLive;
     const topEntry = Object.entries(probs).sort((a, b) => b[1] - a[1])[0];
     const topK = topEntry ? Number(topEntry[0]) : null;
 
@@ -505,8 +538,22 @@ const zShortDaily = Number.isFinite(intraday?.zShort) ? intraday.zShort : Number
         dataHealth: { level: meta?.dataHealthLevel ?? null },
       };
 
+
+const intradayScenarioPack = buildScenarioPackFromIntraday(latestLike);
+
+// Tag: daily regime vs intraday structure mismatch (helps interpret "today's tape vs baseline").
+try {
+  const iTop = intradayScenarioPack?.topK;
+  if (Number.isFinite(topK) && Number.isFinite(iTop) && Number(iTop) !== Number(topK)) {
+    tags.push({
+      level: "yellow",
+      label: "⚠️ 장중-일봉 불일치",
+      msg: `일봉 #${topK} 우세, 장중 #${iTop}로 이동 신호`,
+    });
+  }
+} catch {}
     const snapshot = {
-      scenario: buildScenarioPackFromIntraday(latestLike),
+      scenario: intradayScenarioPack,
       // core outputs
       V,
       probs,
