@@ -73,6 +73,7 @@ export default function FactorBars({ V, raw, lang }) {
         const z = Number(it.z ?? 0);
         const mag = clamp(Math.abs(z) / 3, 0, 1); // z=±3 maps to 100%
         const dir = z >= 0 ? 1 : -1;
+        const pos = 50 + clamp(z / 3, -1, 1) * 50;
         return (
           <div key={it.key} className="space-y-1">
             <div className="flex items-end justify-between">
@@ -88,6 +89,10 @@ export default function FactorBars({ V, raw, lang }) {
                   width: `${mag * 50}%`,
                   left: dir >= 0 ? "50%" : `${50 - mag * 50}%`,
                 }}
+              />
+              <div
+                className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white/70 shadow"
+                style={{ left: `calc(${pos}% - 6px)` }}
               />
             </div>
 

@@ -1,9 +1,21 @@
 // Schema expectations for public/data/latest.json
 export const LATEST_SCHEMA_VERSION = "2.3"; // bump when fields/meaning change
 
-export const REQUIRED_LATEST_KEYS = ["asOf", "featuresZ"];
+export const REQUIRED_LATEST_KEYS = ["featuresZ"];
+
+// Accept legacy key variants
+function normalizeLatestKeys(obj) {
+  if (!obj || typeof obj !== "object") return obj;
+  if (obj.asOf == null) {
+    if (obj.asof != null) obj.asOf = obj.asof;
+    else if (obj.as_of != null) obj.asOf = obj.as_of;
+  }
+  return obj;
+}
+
 
 export function checkLatestSchema(latest) {
+  latest = normalizeLatestKeys(latest);
   if (!latest || typeof latest !== "object") {
     return { ok: false, error: "latest.json is not an object", expected: LATEST_SCHEMA_VERSION, got: null };
   }

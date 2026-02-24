@@ -338,13 +338,16 @@ function computeMarketClock(now) {
   const isHoliday = isNyseHolidayET(dateKey);
 
   const minutes = (Number.isFinite(p.hour) ? p.hour : 0) * 60 + (Number.isFinite(p.minute) ? p.minute : 0);
+  const secs = minutes * 60 + (Number.isFinite(p.second) ? p.second : 0);
   const openMin = 9 * 60 + 30;
   const closeMin = 16 * 60;
+  const openSec = openMin * 60;
+  const closeSec = closeMin * 60;
 
   let phase = "CLOSED";
   if (!isWeekend && !isHoliday) {
-    if (minutes >= openMin && minutes < closeMin) phase = "OPEN";
-    else if (minutes < openMin) phase = "PREMARKET";
+    if (secs >= openSec && secs < closeSec) phase = "OPEN";
+    else if (secs < openSec) phase = "PREMARKET";
     else phase = "CLOSED";
   } else {
     phase = "CLOSED";
