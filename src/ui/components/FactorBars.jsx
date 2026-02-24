@@ -32,38 +32,38 @@ export default function FactorBars({ V, raw, lang }) {
       label: L(lang, { en: "XLP (Defense) ↔ QQQM (Growth)", ko: "XLP(방어) ↔ QQQM(성장)" }),
       z: v[0],
       rawText: r
-        ? `ln(QQQM/XLP) ${fmtNum(r?.x?.ln)} | ratio ${fmtNum(r?.x?.ratio, 3)}`
+        ? L(lang, { en: `ln(QQQM/XLP) ${fmtNum(r?.x?.ln)} | ratio ${fmtNum(r?.x?.ratio, 3)}`, ko: `ln(QQQM/XLP) ${fmtNum(r?.x?.ln)} | 비율 ${fmtNum(r?.x?.ratio, 3)}` })
         : "",
     },
     {
       key: "y",
       label: L(lang, { en: "VOO (Outflow ↔ Inflow)", ko: "VOO(유출 ↔ 유입)" }),
       z: v[1],
-      rawText: r ? `VOO 20D ${fmtPct(r?.y?.voo_20d_pct)}` : "",
+      rawText: r ? L(lang, { en: `VOO 20D ${fmtPct(r?.y?.voo_20d_pct)}`, ko: `VOO 20D ${fmtPct(r?.y?.voo_20d_pct)}` }) : "",
     },
     {
       key: "rates",
       label: L(lang, { en: "^TNX (Rates: down ↔ up)", ko: "^TNX(금리: 하락 ↔ 상승)" }),
       z: v[2],
-      rawText: r ? `TNX 20D ${fmtPct(r?.rates?.tnx_20d_pct)} | lvl ${fmtNum(r?.levels?.TNX)}` : "",
+      rawText: r ? L(lang, { en: `TNX 20D ${fmtPct(r?.rates?.tnx_20d_pct)} | lvl ${fmtNum(r?.levels?.TNX)}`, ko: `TNX 20D ${fmtPct(r?.rates?.tnx_20d_pct)} | 레벨 ${fmtNum(r?.levels?.TNX)}` }) : "",
     },
     {
       key: "usd",
       label: L(lang, { en: "UUP (USD: weak ↔ strong)", ko: "UUP(달러: 약 ↔ 강)" }),
       z: v[3],
-      rawText: r ? `UUP 20D ${fmtPct(r?.usd?.uup_20d_pct)} | lvl ${fmtNum(r?.levels?.UUP)}` : "",
+      rawText: r ? L(lang, { en: `UUP 20D ${fmtPct(r?.usd?.uup_20d_pct)} | lvl ${fmtNum(r?.levels?.UUP)}`, ko: `UUP 20D ${fmtPct(r?.usd?.uup_20d_pct)} | 레벨 ${fmtNum(r?.levels?.UUP)}` }) : "",
     },
     {
       key: "vix",
       label: L(lang, { en: "^VIX (Fear: down ↔ up)", ko: "^VIX(공포: 하락 ↔ 상승)" }),
       z: v[4],
-      rawText: r ? `VIX 5D ${fmtPct(r?.vix?.vix_5d_pct)} | lvl ${fmtNum(r?.levels?.VIX)}` : "",
+      rawText: r ? L(lang, { en: `VIX 5D ${fmtPct(r?.vix?.vix_5d_pct)} | lvl ${fmtNum(r?.levels?.VIX)}`, ko: `VIX 5D ${fmtPct(r?.vix?.vix_5d_pct)} | 레벨 ${fmtNum(r?.levels?.VIX)}` }) : "",
     },
     {
       key: "goldFear",
       label: L(lang, { en: "GLD (Hedge: weak ↔ strong)", ko: "GLD(회피: 약 ↔ 강)" }),
       z: v[5],
-      rawText: r ? `GLD 20D ${fmtPct(r?.gold?.gld_20d_pct)} | lvl ${fmtNum(r?.levels?.GLD)}` : "",
+      rawText: r ? L(lang, { en: `GLD 20D ${fmtPct(r?.gold?.gld_20d_pct)} | lvl ${fmtNum(r?.levels?.GLD)}`, ko: `GLD 20D ${fmtPct(r?.gold?.gld_20d_pct)} | 레벨 ${fmtNum(r?.levels?.GLD)}` }) : "",
     },
   ];
 

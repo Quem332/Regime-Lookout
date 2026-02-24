@@ -71,6 +71,7 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
   const W_SCORE = L("점수", "Score");
 
   const vm = useMemo(() => buildMriViewModel({ api, t }), [api, t]);
+  const marketOpen = Boolean(vm.raw?.marketOpen ?? api?.mri?.status?.marketOpen ?? api?.mri?.marketOpen ?? false);
   const daily = vm.raw.daily;
 
   // Forward-compatible period support: accept both legacy (single daily) and new schema (daily.periods).
@@ -152,10 +153,7 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
   return (
     <div className="px-4 pb-6 min-h-[calc(100dvh-4rem)]" onPointerDown={onPointerDown} onPointerUp={onPointerUp} style={{ touchAction: "pan-y" }}>
       <div className="mb-3 flex items-center justify-between gap-2">
-        <div className="text-xs text-white/60">
-          {t?.("b.lookback", "Lookback") ?? "Lookback"}: {lookback.toUpperCase()}
-          {dataMissing ? ` · ${tSafe(t, "b.na", L("데이터 없음", "No data"))}` : ""}
-        </div>
+        <div className="text-xs text-white/60">{dataMissing ? tSafe(t, "b.na", L("데이터 없음", "No data")) : ""}</div>
         <div className="flex items-center gap-1">
           {[
             { k: "20d", label: "20D" },
@@ -196,15 +194,13 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
 
       {view === "b1" ? (
         <div className="grid gap-3">
-          <Card title={tSafe(t, "b1.title", L("기간 해석", "Period Interpretation"))} subtitle={tSafe(t, "b1.subtitle", L("구조 + 분포 (점수 없음)", "Structure + distribution (no score)"))}>
+          <Card className="p-3" title={tSafe(t, "b1.title", L("기간 해석", "Period Interpretation"))} subtitle={tSafe(t, "b1.subtitle", L("구조 + 분포 (점수 없음)", "Structure + distribution (no score)"))}>
             <div className="flex items-start justify-between gap-3 mb-2">
               <div className="text-sm text-white/85 leading-snug">
                 {periodCopy?.summary ?? "--"}
               </div>
               {Number.isFinite(periodDaily?.score) || Number.isFinite(periodDaily?.Cfinal) ? (
-                <div className="text-[11px] text-white/60 tabular-nums whitespace-nowrap">
-                  {lbKey}{Number.isFinite(periodDaily?.score) ? ` · ${W_SCORE} ${Math.round(periodDaily.score)}` : ""}{Number.isFinite(periodDaily?.Cfinal) ? ` · ${W_CONF} ${Math.round(periodDaily.Cfinal)}` : ""}
-                </div>
+                <div className="text-[11px] text-white/60 tabular-nums whitespace-nowrap">{marketOpen ? L("오늘 장", "Today") : L("마감", "Close")}{Number.isFinite(periodDaily?.score) ? ` ${W_SCORE} ${Math.round(periodDaily.score)}` : ""}{Number.isFinite(periodDaily?.Cfinal) ? ` · ${W_CONF} ${Math.round(periodDaily.Cfinal)}` : ""}</div>
               ) : null}
             </div>
 {periodCopy?.warning ? <div className="mt-1 text-xs text-white/60 leading-snug">{periodCopy.warning}</div> : null}
@@ -247,17 +243,17 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
         </div>
       ) : (
         <div className="grid gap-3">
-          <Card title={tSafe(t, "b2.factors", L("요인 (기간)", "Period Factors"))} subtitle={`${tSafe(t, "b2.factorsSub", L("요인(6D) + 맵", "Factors (6D) + map"))} · ${lbKey}`}>
+          <Card className="p-3" title={tSafe(t, "b2.factors", L("요인 (기간)", "Period Factors"))} subtitle={`${tSafe(t, "b2.factorsSub", L("요인(6D) + 맵", "Factors (6D) + map"))}`}>
             {dataMissing ? (
               <div className="py-6 text-sm text-white/60">
                 {tSafe(t, "ui.dataMissing", L("데이터가 없어 표시할 수 없습니다. (Actions에서 데이터 업데이트를 실행하세요)", "Data is missing. (Run a data update workflow in Actions)"))}
               </div>
             ) : (
-              <FactorBars V={viewModel?.V} raw={periodDaily?.inputsRaw ?? dailyRoot?.inputsRaw ?? dailyRoot?.meta?.inputsRaw ?? null} />
+              <FactorBars V={viewModel?.V} raw={periodDaily?.inputsRaw ?? dailyRoot?.inputsRaw ?? dailyRoot?.meta?.inputsRaw ?? null} lang={lang} />
             )}
           </Card>
 
-          <Card title={tSafe(t, "ui.quadrant", L("포지션 맵", "Position Map"))} subtitle={tSafe(t, "quadrant.subtitle", L("성장↔방어, 유입↔유출", "Growth↔Defense, Inflow↔Outflow"))}>
+          <Card className="p-3" title={tSafe(t, "ui.quadrant", L("포지션 맵", "Position Map"))} subtitle={tSafe(t, "quadrant.subtitle", L("성장↔방어, 유입↔유출", "Growth↔Defense, Inflow↔Outflow"))}>
             <div className="relative w-full aspect-[16/9] rounded-2xl bg-white/5 border border-white/10 overflow-hidden">
               <div className="absolute inset-0">
                 <div className="absolute left-1/2 top-0 bottom-0 w-px bg-white/10" />

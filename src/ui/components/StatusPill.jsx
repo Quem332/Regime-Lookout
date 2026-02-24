@@ -10,7 +10,7 @@ import { Pill } from "./Pill";
  *  status.market: {tone,label,latencyMin,asOf}
  *  status.timers: {countdown,pollMs}
  */
-export function StatusPill({ market, timers, health, marketOpen, eventWindow }) {
+export function StatusPill({ market, timers, health, marketOpen, eventWindow, lang }) {
   const toneToPill = (t) => {
     if (t === "good") return "green";
     if (t === "warn") return "yellow";
@@ -23,7 +23,8 @@ export function StatusPill({ market, timers, health, marketOpen, eventWindow }) 
   const dataLabel = market?.label || "DATA --:--";
   const rawCountdown = timers?.countdown;
   const safeCountdown = typeof rawCountdown === "string" && !rawCountdown.includes("NaN") ? rawCountdown : null;
-  const nextLabel = safeCountdown ? `NEXT ${safeCountdown}` : "NEXT --:--";
+  const nextPrefix = String(lang || "").startsWith("ko") ? "다음" : "NEXT";
+  const nextLabel = safeCountdown ? `${nextPrefix} ${safeCountdown}` : `${nextPrefix} --:--`;
   const healthTone = toneToPill(health?.tone);
   return (
     <div className="flex items-center gap-2">

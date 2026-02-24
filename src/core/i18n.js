@@ -1,6 +1,7 @@
 export const I18N = {
   en: {
     appName: "MRI",
+    nav: { home: "HOME", market: "MARKET", hub: "HUB", a1: "Score", a2: "Breakdown", b1: "Scenarios", b2: "Data" },
     pages: { A: "Daily", B: "Score", C: "Hub", D: "Intraday" },
     b: { lookback: "Lookback", na: "(data not available yet)" },
     dataPreparingTitle: "Data is being prepared",
@@ -39,7 +40,7 @@ export const I18N = {
       },
     },
     score: {
-      titleTop: "TODAY SCORE",
+      titleTop: "오늘 점수",
       reliability: "Reliability",
       topScenarios: "Top Scenarios",
       regimeSignalConflict: "Signal Conflict (7B)",
@@ -144,6 +145,7 @@ export const I18N = {
   },
   ko: {
     appName: "MRI",
+    nav: { home: "HOME", market: "MARKET", hub: "HUB", a1: "점수", a2: "상세", b1: "시나리오", b2: "데이터" },
     pages: { A: "일봉", B: "스코어", C: "허브", D: "분봉" },
     b: { lookback: "기간", na: "(데이터 준비 전)" },
     scoreLabels: { calm: "안정", watch: "주의", risk: "위험" },
@@ -192,7 +194,7 @@ export const I18N = {
       },
     },
     score: {
-      titleTop: "TODAY SCORE",
+      titleTop: "오늘 점수",
       reliability: "신뢰도",
       topScenarios: "상위 시나리오",
       regimeSignalConflict: "신호 충돌 (7B)",

@@ -195,7 +195,7 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       {/* A-1 (Daily) */}
       {view === "a1" ? (
         <div className="grid gap-3">
-          <Card title={tSafe(t, "a1.title", L("오늘", "Today"))} subtitle={tSafe(t, "a1.subtitle", L("위험조정 해석", "Risk-adjusted interpretation"))}>
+          <Card className="p-3" title={tSafe(t, "a1.title", L("오늘", "Today"))} subtitle={tSafe(t, "a1.subtitle", L("위험조정 해석", "Risk-adjusted interpretation"))}>
             <div className="flex items-end justify-between gap-3">
               <div className="flex items-end gap-3">
                 <div className="text-5xl font-extrabold text-white leading-none">{score == null ? "--" : String(Math.round(score))}</div>
@@ -237,11 +237,11 @@ export function PageHome({ api, tab, setTab, t, lang }) {
         // A-2 (Intraday)
         <div className="grid gap-3">
 
-          <Card title={tSafe(t, "a2.factors", L("요인 (6D)", "Factors (6D)"))} subtitle={tSafe(t, "a2.factorsSub", L("z-score + raw", "z-score + raw snapshot"))}>
+          <Card className="p-3" title={tSafe(t, "a2.factors", L("요인 (6D)", "Factors (6D)"))} subtitle={tSafe(t, "a2.factorsSub", L("z-score + raw", "z-score + raw snapshot"))}>
             <FactorBars lang={lang} V={daily?.V} raw={api?.mri?.inputsRaw ?? api?.mri?.daily?.inputsRaw ?? api?.mri?.meta?.inputsRaw} />
           </Card>
 
-          <Card title={tSafe(t, "ui.quadrant", L("포지션 맵", "Position Map"))} subtitle={tSafe(t, "quadrant.subtitle", L("성장↔방어, 유입↔유출", "Growth↔Defense, Inflow↔Outflow"))}>
+          <Card className="p-3" title={tSafe(t, "ui.quadrant", L("포지션 맵", "Position Map"))} subtitle={tSafe(t, "quadrant.subtitle", L("성장↔방어, 유입↔유출", "Growth↔Defense, Inflow↔Outflow"))}>
             <div className="relative w-full aspect-[16/9] rounded-2xl bg-white/5 border border-white/10 overflow-hidden">
               <div className="absolute inset-0">
                 <div className="absolute left-1/2 top-0 bottom-0 w-px bg-white/10" />
@@ -266,7 +266,7 @@ export function PageHome({ api, tab, setTab, t, lang }) {
             </div>
           </Card>
 
-          <Card title={tSafe(t, "a2.intra", L("장중 진단", "Intraday Diagnostics"))} subtitle={marketOpen ? tSafe(t, "a2.intraOpen", L("실시간", "Live")) : tSafe(t, "a2.intraClosed", L("장 외", "Off-hours"))}>
+          <Card className="p-3" title={tSafe(t, "a2.intra", L("장중 진단", "Intraday Diagnostics"))} subtitle={marketOpen ? tSafe(t, "a2.intraOpen", L("실시간", "Live")) : tSafe(t, "a2.intraClosed", L("장 외", "Off-hours"))}>
             {intraday?.intraday ? (
               <div className="text-xs text-white/70 space-y-1">
                 <div>z_short: {Number.isFinite(intraday?.intraday?.zShort) ? Number(intraday.intraday.zShort).toFixed(2) : "--"}</div>

@@ -78,11 +78,11 @@ export function PageScore({ t, daily, lang }) {
           <div>
             <div className="text-xs text-gray-400">{tGet(t, "score.titleTop", "Score")}</div>
             <div className="text-3xl font-extrabold leading-none mt-1">{Math.round(score)}</div>
-            <div className="text-[11px] text-gray-400 mt-1">{tGet(t, "score.reliability", "Reliability")}: {Math.round(C)}</div>
+            <div className="text-[11px] text-gray-400 mt-1">{tGet(t, "score.reliability", lang === "ko" ? "신뢰도" : "Reliability")}: {Math.round(C)}</div>
           </div>
 
           <div className="text-right">
-            <div className="text-xs text-gray-400">Regime</div>
+            <div className="text-xs text-gray-400">{lang === "ko" ? "레짐" : "Regime"}</div>
             <div className="text-lg font-bold mt-0.5">{regime}</div>
             <div className="flex gap-2 mt-2 justify-end">
               <Pill tone={scoreTone}>{lang === "ko" ? "점수" : "Score"}: {Math.round(score)}</Pill>
@@ -164,7 +164,7 @@ export function PageScore({ t, daily, lang }) {
               onClick={() => setTagPage((p) => Math.max(0, p - 1))}
               disabled={tagPage === 0}
             >
-              Prev
+              {lang === "ko" ? "이전" : "Prev"}
             </button>
             <button
               className="text-xs px-2 py-1 rounded-lg bg-white/10 hover:bg-white/15 disabled:opacity-40"
@@ -175,7 +175,7 @@ export function PageScore({ t, daily, lang }) {
               }
               disabled={(tagPage + 1) * TAGS_PER_PAGE >= (tags || []).length}
             >
-              Next
+              {lang === "ko" ? "다음" : "Next"}
             </button>
           </div>
         </div>
