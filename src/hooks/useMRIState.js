@@ -452,15 +452,23 @@ export function useMRIState() {
       featuresZPack?.goldFear,
     ].map((v) => num(v, 0));
 
-    const latencyMinPack = metaPack?.latencyMin ?? metaPack?.latencyMinutes ?? metaPack?.latency ?? null;
     const healthLevelPack = metaPack?.dataHealth?.level ?? metaPack?.dataHealthLevel ?? null;
 
     // IMPORTANT:
     // - daily_latest.json is end-of-day and can legitimately be many hours "old" relative to now.
-    // - intraday_latest.json is the one that must be fresh (<= ~30m) during market hours.
-    // If intraday data is not present, do NOT cap confidence just because the daily snapshot is old.
+    //   (meta.latencyMin is "asOf" lag, NOT a fetch freshness signal)
+    // - intraday freshness should be judged by WHEN we fetched intraday_latest.json (or the embedded
+    //   intraday block), not by daily latency.
     const hasIntraday = Boolean(metaPack?.intraday ?? latestRef.current?.intraday);
-    const dataOkFresh = hasIntraday ? (Number.isFinite(latencyMinPack) ? latencyMinPack <= 30 : true) : true;
+
+    const fetchedAtIso = metaPack?.fetchedAt ?? latestRef.current?.fetchedAt ?? null;
+    const fetchedAtMs = fetchedAtIso ? Date.parse(fetchedAtIso) : NaN;
+    const ageMinSinceFetch = Number.isFinite(fetchedAtMs) ? (Date.now() - fetchedAtMs) / 60000 : null;
+
+    // If we have intraday payload, require it to be "recently fetched" (default: <= 2h).
+    // (2h is intentionally loose to avoid hard-capping during overnight / gate-off windows.)
+    const dataOkFresh = hasIntraday ? (ageMinSinceFetch == null ? true : ageMinSinceFetch <= 120) : true;
+
     const dataOkFinal =
       dataOkFresh && !["BAD", "DOWN", "ERROR", "NONE"].includes(String(healthLevelPack ?? "").toUpperCase());
 
