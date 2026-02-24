@@ -734,57 +734,106 @@ if (legacy) {
 }
 
 
-    // Fetch latest.json (schema v2.3) as the canonical payload for A-pages (Score/Home/Intraday).
-    // Even in split mode (daily_latest + intraday_latest), we still rely on latest.json for featuresZ.
-    const latestInfo = await fetchJson(rawUrl("latest.json"), { timeoutMs: 15000 });
-    const latestJson = latestInfo?.data ?? null;
-    sources.latest = {
-      ok: !!latestJson,
-      url: latestInfo?.url ?? rawUrl("latest.json"),
-      errors: latestInfo?.errors ?? [],
-    };
-// Emit diagnostics to console/log so "준비중" never hides the why.
-const compactErrs = (arr) => (arr || []).map((x) => ({ url: x.url, message: x.message }));
-if (!sources.daily.ok && sources.daily.errors.length) logger.warn("data.fetch_fail.daily", compactErrs(sources.daily.errors));
-if (!sources.intraday.ok && sources.intraday.errors.length) logger.warn("data.fetch_fail.intraday", compactErrs(sources.intraday.errors));
-if (sources.mode === "legacy" && sources.legacy.errors.length) logger.warn("data.fetch_fail.legacy", compactErrs(sources.legacy.errors));
-logger.info("data.fetch_summary", {
-  mode: sources.mode,
-  latestUrl: sources.latest?.url ?? null,
-  dailyUrl: sources.daily.url,
-  intradayUrl: sources.intraday.url,
-  legacyUrl: sources.legacy.url,
-});
 
-const raw = (latestJson)
-  ? {
-      ...latestJson,
-      _sources: {
-        ...(latestJson?._sources || {}),
+    // In schema v2.3 we can publish either:
+    // - split mode: daily_latest.json + intraday_latest.json (preferred)
+    // - legacy mode: latest_legacy.json
+    // Some deployments may also publish latest.json as a combined convenience file.
+    // In split mode we *never* require latest.json: if it's missing/empty we still stitch daily+intraday.
+    let latestJson = null;
+    let latestInfo = null;
+    if (sources.mode === "split") {
+      try {
+        latestInfo = await fetchJson(rawUrl("latest.json"), { timeoutMs: 15000 });
+        latestJson = latestInfo?.data ?? null;
+      } catch (e) {
+        latestInfo = {
+          data: null,
+          url: rawUrl("latest.json"),
+          errors: [{ url: rawUrl("latest.json"), message: e?.message || String(e) }],
+        };
+        latestJson = null;
+      }
+      sources.latest = {
+        ok: !!latestJson,
+        url: latestInfo?.url ?? rawUrl("latest.json"),
+        errors: latestInfo?.errors ?? [],
+      };
+    } else {
+      sources.latest = { ok: false, url: rawUrl("latest.json"), errors: [] };
+    }
+
+    // Emit diagnostics to console/log so "준비중" never hides the why.
+    const compactErrs = (arr) => (arr || []).map((x) => ({ url: x.url, message: x.message }));
+    if (!sources.daily.ok && sources.daily.errors.length) logger.warn("data.fetch_fail.daily", compactErrs(sources.daily.errors));
+    if (!sources.intraday.ok && sources.intraday.errors.length) logger.warn("data.fetch_fail.intraday", compactErrs(sources.intraday.errors));
+    if (sources.mode === "legacy" && sources.legacy.errors.length) logger.warn("data.fetch_fail.legacy", compactErrs(sources.legacy.errors));
+    if (sources.mode === "split" && sources.latest.errors?.length) logger.warn("data.fetch_fail.latest", compactErrs(sources.latest.errors));
+    logger.info("data.fetch_summary", {
+      mode: sources.mode,
+      latestUrl: sources.latest?.url ?? null,
+      dailyUrl: sources.daily.url,
+      intradayUrl: sources.intraday.url,
+      legacyUrl: sources.legacy.url,
+    });
+
+    const buildSplitLatest = ({ daily, intraday, combined }) => {
+      // If latest.json exists, treat it as the canonical combined payload.
+      const base = combined || daily || intraday || null;
+      if (!base) return null;
+
+      // clone (avoid mutating fetch cache objects)
+      const out = { ...(base || {}) };
+
+      // If we *didn't* get latest.json, stitch daily+intraday into the shape the UI expects.
+      if (!combined) {
+        out.schemaVersion = daily?.schemaVersion ?? intraday?.schemaVersion ?? out.schemaVersion ?? null;
+        out.asOf = daily?.asOf ?? intraday?.asOf ?? out.asOf ?? null;
+        out.lastTradingDay = daily?.lastTradingDay ?? intraday?.lastTradingDay ?? out.lastTradingDay ?? null;
+        out.dataHealth = daily?.dataHealth ?? intraday?.dataHealth ?? out.dataHealth ?? null;
+        out.latencyMin = daily?.latencyMin ?? intraday?.latencyMin ?? out.latencyMin ?? null;
+        out.fetchedAt = daily?.fetchedAt ?? intraday?.fetchedAt ?? out.fetchedAt ?? null;
+
+        // daily_latest.json carries the daily-side fields
+        out.featuresZ = daily?.featuresZ ?? out.featuresZ ?? null;
+        out.periods = daily?.periods ?? out.periods ?? null;
+        out.daily = daily?.daily ?? out.daily ?? null;
+
+        // intraday_latest.json may be either { intraday: {...} } or already the intraday object
+        out.intraday = intraday?.intraday ?? intraday ?? out.intraday ?? null;
+      }
+
+      out._sources = {
+        ...(out?._sources || {}),
         daily: !!daily,
         intraday: !!intraday,
-        latestUrl: sources.latest.url,
+        latestUrl: sources.latest?.ok ? sources.latest.url : null,
         dailyUrl: sources.daily.url,
         intradayUrl: sources.intraday.url,
-        legacyUrl: null,
+        legacyUrl: sources.mode === "legacy" ? sources.legacy.url : null,
         mode: sources.mode,
-      },
-    }
-  : (legacy
-      ? {
-          ...legacy,
-          _sources: {
-            ...(legacy?._sources || {}),
-            daily: false,
-            intraday: false,
-            latestUrl: null,
-            dailyUrl: null,
-            intradayUrl: null,
-            legacyUrl: sources.legacy.url,
-            mode: sources.mode,
-          },
-        }
-      : null);
+      };
+
+      return out;
+    };
+
+    const raw = (sources.mode === "split" && (daily || intraday))
+      ? buildSplitLatest({ daily, intraday, combined: latestJson })
+      : (legacy
+          ? {
+              ...legacy,
+              _sources: {
+                ...(legacy?._sources || {}),
+                daily: false,
+                intraday: false,
+                latestUrl: null,
+                dailyUrl: null,
+                intradayUrl: null,
+                legacyUrl: sources.legacy.url,
+                mode: sources.mode,
+              },
+            }
+          : null);
 
 healthRef.current = { ...healthRef.current, sources };
 
