@@ -6,12 +6,23 @@ export const REQUIRED_LATEST_KEYS = ["featuresZ"];
 // Accept legacy key variants
 function normalizeLatestKeys(obj) {
   if (!obj || typeof obj !== "object") return obj;
+
+  // asOf aliases
   if (obj.asOf == null) {
     if (obj.asof != null) obj.asOf = obj.asof;
     else if (obj.as_of != null) obj.asOf = obj.as_of;
   }
+  if (obj.asof == null && obj.asOf != null) obj.asof = obj.asOf;
+
+  // featuresZ aliases (back-compat with older latest.json)
+  if (obj.featuresZ == null) {
+    if (obj.features != null) obj.featuresZ = obj.features;
+    else if (obj.features_z != null) obj.featuresZ = obj.features_z;
+  }
+
   return obj;
 }
+
 
 
 export function checkLatestSchema(latest) {

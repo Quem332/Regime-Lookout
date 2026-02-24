@@ -745,12 +745,18 @@ logger.info("data.fetch_summary", {
   legacyUrl: sources.legacy.url,
 });
 
+const dailyAsOf = daily?.asof ?? daily?.asOf ?? daily?.as_of ?? null;
+const intradayAsOf = intraday?.asof ?? intraday?.asOf ?? intraday?.as_of ?? null;
+const dailyFetchedAt = daily?.fetchedAt ?? daily?.fetched_at ?? null;
+const intradayFetchedAt = intraday?.fetchedAt ?? intraday?.fetched_at ?? null;
+
 const raw = (daily || intraday)
   ? {
       daily,
       intraday,
-      fetchedAt: intraday?.fetchedAt || daily?.fetchedAt || null,
-      asof: intraday?.asof || daily?.asof || null,
+      fetchedAt: intradayFetchedAt || dailyFetchedAt || null,
+      asOf: intradayAsOf || dailyAsOf || null,
+      asof: intradayAsOf || dailyAsOf || null,
       _sources: {
         daily: !!daily,
         intraday: !!intraday,
