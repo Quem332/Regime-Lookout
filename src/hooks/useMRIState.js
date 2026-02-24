@@ -733,6 +733,16 @@ if (legacy) {
   sources.legacy = { ok: false, url: legacyInfo?.url || null, errors: legacyInfo?.errors || [] };
 }
 
+
+    // Fetch latest.json (schema v2.3) as the canonical payload for A-pages (Score/Home/Intraday).
+    // Even in split mode (daily_latest + intraday_latest), we still rely on latest.json for featuresZ.
+    const latestInfo = await fetchJson(rawUrl("latest.json"), { timeoutMs: 15000 });
+    const latest = latestInfo?.data ?? null;
+    sources.latest = {
+      ok: !!latest,
+      url: latestInfo?.url ?? rawUrl("latest.json"),
+      errors: latestInfo?.errors ?? [],
+    };
 // Emit diagnostics to console/log so "준비중" never hides the why.
 const compactErrs = (arr) => (arr || []).map((x) => ({ url: x.url, message: x.message }));
 if (!sources.daily.ok && sources.daily.errors.length) logger.warn("data.fetch_fail.daily", compactErrs(sources.daily.errors));
@@ -740,26 +750,20 @@ if (!sources.intraday.ok && sources.intraday.errors.length) logger.warn("data.fe
 if (sources.mode === "legacy" && sources.legacy.errors.length) logger.warn("data.fetch_fail.legacy", compactErrs(sources.legacy.errors));
 logger.info("data.fetch_summary", {
   mode: sources.mode,
+  latestUrl: sources.latest?.url ?? null,
   dailyUrl: sources.daily.url,
   intradayUrl: sources.intraday.url,
   legacyUrl: sources.legacy.url,
 });
 
-const dailyAsOf = daily?.asof ?? daily?.asOf ?? daily?.as_of ?? null;
-const intradayAsOf = intraday?.asof ?? intraday?.asOf ?? intraday?.as_of ?? null;
-const dailyFetchedAt = daily?.fetchedAt ?? daily?.fetched_at ?? null;
-const intradayFetchedAt = intraday?.fetchedAt ?? intraday?.fetched_at ?? null;
-
-const raw = (daily || intraday)
+const raw = (latest)
   ? {
-      daily,
-      intraday,
-      fetchedAt: intradayFetchedAt || dailyFetchedAt || null,
-      asOf: intradayAsOf || dailyAsOf || null,
-      asof: intradayAsOf || dailyAsOf || null,
+      ...latest,
       _sources: {
+        ...(latest?._sources || {}),
         daily: !!daily,
         intraday: !!intraday,
+        latestUrl: sources.latest.url,
         dailyUrl: sources.daily.url,
         intradayUrl: sources.intraday.url,
         legacyUrl: null,
@@ -773,6 +777,7 @@ const raw = (daily || intraday)
             ...(legacy?._sources || {}),
             daily: false,
             intraday: false,
+            latestUrl: null,
             dailyUrl: null,
             intradayUrl: null,
             legacyUrl: sources.legacy.url,

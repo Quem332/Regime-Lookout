@@ -13,3 +13,4 @@ backend/__pycache__/
 # Build output (Pages is deployed from Actions artifact)
 dist/
 
+public/data/intraday_latest.json
