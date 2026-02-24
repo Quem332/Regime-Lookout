@@ -465,63 +465,34 @@ export function useMRIState() {
       return;
     }
 
-    // Freshness: do NOT use EOD/intraday market latency ("asOf" vs now) as a freshness proxy.
-    // Use the actual fetch timestamp instead. (Daily snapshots can be ~many hours behind during the day by design.)
-    const fetchedAtIso = meta?.fetchedAt ?? meta?.fetchAt ?? null;
-    const fetchedAtMs = fetchedAtIso ? Date.parse(String(fetchedAtIso)) : NaN;
-    const ageMinSinceFetch = Number.isFinite(fetchedAtMs) ? (Date.now() - fetchedAtMs) / 60000 : null;
+    const latencyMin = meta?.latencyMin ?? meta?.latencyMinutes ?? meta?.latency ?? null;
+const healthLevel = meta?.dataHealth?.level ?? meta?.dataHealthLevel ?? null;
 
-    const healthLevel = meta?.dataHealth?.level ?? meta?.dataHealthLevel ?? null;
+// Freshness: do NOT use end-of-day latency as "staleness".
+// Use actual update timestamp (fetchedAt) when available.
+const fetchedAtStr = meta?.fetchedAt ?? meta?.fetched_at ?? null;
+const fetchedAtDate = fetchedAtStr ? toDateSafe(fetchedAtStr) : null;
+const ageMinSinceFetch = fetchedAtDate ? (Date.now() - fetchedAtDate.getTime()) / 60000 : null;
 
-    // Data considered OK if it was fetched recently (default: 2h) and not explicitly marked bad.
-    const dataOk = Number.isFinite(ageMinSinceFetch) ? ageMinSinceFetch <= 120 : true;
-    const dataOkFinal =
-      dataOk && !["BAD", "DOWN", "ERROR"].includes(String(healthLevel ?? "").toUpperCase());
-// Intraday overlay metrics (may be null outside market hours)
-const corrAvgDaily = intraday?.corrAvg ?? meta?.intraday?.corrAvg ?? upperTriangleAvgCorrMock();
+// Consider data fresh if fetched within 2 hours. If unknown, don't penalize.
+const freshOk = typeof ageMinSinceFetch === "number" && Number.isFinite(ageMinSinceFetch) ? ageMinSinceFetch <= 120 : true;
+
+// Data considered OK if fresh and not explicitly marked bad.
+const dataOk = freshOk;
+const dataOkFinal =
+  dataOk && !["BAD", "DOWN", "ERROR"].includes(String(healthLevel ?? "").toUpperCase());
+    const corrAvgDaily = intraday?.corrAvg ?? meta?.intraday?.corrAvg ?? upperTriangleAvgCorrMock();
+
 const corrSurgeDaily = Boolean(intraday?.corrSurge ?? meta?.intraday?.corrSurge ?? false);
-const zShortDaily = Number.isFinite(intraday?.zShort)
-  ? intraday.zShort
-  : Number.isFinite(meta?.intraday?.zShort)
-    ? meta.intraday.zShort
-    : 0;
+const zShortDaily = Number.isFinite(intraday?.zShort) ? intraday.zShort : Number.isFinite(meta?.intraday?.zShort) ? meta.intraday.zShort : 0;
 
-const { probs, passedKeys } = computeProbabilitiesSpec(V);
 
-// Reliability:
-// - baseC: regime-level reliability from the daily structure only (no intraday penalties)
-// - Cfinal: displayed confidence with intraday penalties when available
-const relBase = computeReliabilityCSpec({
-  dataOk: dataOkFinal,
-  corrAvg: upperTriangleAvgCorrMock(),
-  corrSurge: false,
-  zShort: 0,
-  V,
-  probs,
-});
-const baseC = relBase.C;
+    const { probs, passedKeys } = computeProbabilitiesSpec(V);
+    const rel = computeReliabilityCSpec({ dataOk: dataOkFinal, corrAvg: corrAvgDaily, corrSurge: corrSurgeDaily, zShort: zShortDaily, V, probs });
+    const Cfinal = rel.C;
+    const regime7 = computeRegime7Spec({ passedKeys, Cfinal, V });
+    const scorePack = computeTodayScoreSpec({ probs, Cfinal, corrAvg: corrAvgDaily, V, regime7 });
 
-const relLive = computeReliabilityCSpec({
-  dataOk: dataOkFinal,
-  corrAvg: corrAvgDaily,
-  corrSurge: corrSurgeDaily,
-  zShort: zShortDaily,
-  V,
-  probs,
-});
-const Cfinal = relLive.C;
-
-// Regime labeling uses the displayed confidence.
-const regime7 = computeRegime7Spec({ passedKeys, Cfinal, V });
-
-// Score: anchored to 60D daily structure; intraday can only nudge it within a small cap.
-const scoreBase = computeTodayScoreSpec({ probs, Cfinal: baseC, corrAvg: upperTriangleAvgCorrMock(), V, regime7 });
-const scoreLive = computeTodayScoreSpec({ probs, Cfinal, corrAvg: corrAvgDaily, V, regime7 });
-const scoreDelta = (Number(scoreLive?.score) || 0) - (Number(scoreBase?.score) || 0);
-const scoreFinal = (Number(scoreBase?.score) || 0) + clamp(scoreDelta, -3, 3);
-
-const scorePack = { ...scoreBase, score: scoreFinal };
-const rel = relLive;
     const topEntry = Object.entries(probs).sort((a, b) => b[1] - a[1])[0];
     const topK = topEntry ? Number(topEntry[0]) : null;
 
@@ -538,22 +509,8 @@ const rel = relLive;
         dataHealth: { level: meta?.dataHealthLevel ?? null },
       };
 
-
-const intradayScenarioPack = buildScenarioPackFromIntraday(latestLike);
-
-// Tag: daily regime vs intraday structure mismatch (helps interpret "today's tape vs baseline").
-try {
-  const iTop = intradayScenarioPack?.topK;
-  if (Number.isFinite(topK) && Number.isFinite(iTop) && Number(iTop) !== Number(topK)) {
-    tags.push({
-      level: "yellow",
-      label: "⚠️ 장중-일봉 불일치",
-      msg: `일봉 #${topK} 우세, 장중 #${iTop}로 이동 신호`,
-    });
-  }
-} catch {}
     const snapshot = {
-      scenario: intradayScenarioPack,
+      scenario: buildScenarioPackFromIntraday(latestLike),
       // core outputs
       V,
       probs,
@@ -583,15 +540,8 @@ try {
       tags,
       meta,
 
-      // Period packs (20D/60D/252D) for B-page switching.
-      // Attached by the fetch/normalize layer when available.
-      periods: meta?.periods ?? null,
-
       ts: new Date(),
     };
-
-    // When building nested period packs, return without touching state.
-    if (meta?.returnOnly) return snapshot;
 
     setDaily(snapshot);
 
@@ -792,106 +742,57 @@ if (legacy) {
 }
 
 
+    // Fetch latest.json (schema v2.3) as the canonical payload for A-pages (Score/Home/Intraday).
+    // Even in split mode (daily_latest + intraday_latest), we still rely on latest.json for featuresZ.
+    const latestInfo = await fetchJson(rawUrl("latest.json"), { timeoutMs: 15000 });
+    const latest = latestInfo?.data ?? null;
+    sources.latest = {
+      ok: !!latest,
+      url: latestInfo?.url ?? rawUrl("latest.json"),
+      errors: latestInfo?.errors ?? [],
+    };
+// Emit diagnostics to console/log so "준비중" never hides the why.
+const compactErrs = (arr) => (arr || []).map((x) => ({ url: x.url, message: x.message }));
+if (!sources.daily.ok && sources.daily.errors.length) logger.warn("data.fetch_fail.daily", compactErrs(sources.daily.errors));
+if (!sources.intraday.ok && sources.intraday.errors.length) logger.warn("data.fetch_fail.intraday", compactErrs(sources.intraday.errors));
+if (sources.mode === "legacy" && sources.legacy.errors.length) logger.warn("data.fetch_fail.legacy", compactErrs(sources.legacy.errors));
+logger.info("data.fetch_summary", {
+  mode: sources.mode,
+  latestUrl: sources.latest?.url ?? null,
+  dailyUrl: sources.daily.url,
+  intradayUrl: sources.intraday.url,
+  legacyUrl: sources.legacy.url,
+});
 
-    // In schema v2.3 we can publish either:
-    // - split mode: daily_latest.json + intraday_latest.json (preferred)
-    // - legacy mode: latest_legacy.json
-    // Some deployments may also publish latest.json as a combined convenience file.
-    // In split mode we *never* require latest.json: if it's missing/empty we still stitch daily+intraday.
-    let latestJson = null;
-    let latestInfo = null;
-    if (sources.mode === "split") {
-      try {
-        latestInfo = await fetchJson(rawUrl("latest.json"), { timeoutMs: 15000 });
-        latestJson = latestInfo?.data ?? null;
-      } catch (e) {
-        latestInfo = {
-          data: null,
-          url: rawUrl("latest.json"),
-          errors: [{ url: rawUrl("latest.json"), message: e?.message || String(e) }],
-        };
-        latestJson = null;
-      }
-      sources.latest = {
-        ok: !!latestJson,
-        url: latestInfo?.url ?? rawUrl("latest.json"),
-        errors: latestInfo?.errors ?? [],
-      };
-    } else {
-      sources.latest = { ok: false, url: rawUrl("latest.json"), errors: [] };
-    }
-
-    // Emit diagnostics to console/log so "준비중" never hides the why.
-    const compactErrs = (arr) => (arr || []).map((x) => ({ url: x.url, message: x.message }));
-    if (!sources.daily.ok && sources.daily.errors.length) logger.warn("data.fetch_fail.daily", compactErrs(sources.daily.errors));
-    if (!sources.intraday.ok && sources.intraday.errors.length) logger.warn("data.fetch_fail.intraday", compactErrs(sources.intraday.errors));
-    if (sources.mode === "legacy" && sources.legacy.errors.length) logger.warn("data.fetch_fail.legacy", compactErrs(sources.legacy.errors));
-    if (sources.mode === "split" && sources.latest.errors?.length) logger.warn("data.fetch_fail.latest", compactErrs(sources.latest.errors));
-    logger.info("data.fetch_summary", {
-      mode: sources.mode,
-      latestUrl: sources.latest?.url ?? null,
-      dailyUrl: sources.daily.url,
-      intradayUrl: sources.intraday.url,
-      legacyUrl: sources.legacy.url,
-    });
-
-    const buildSplitLatest = ({ daily, intraday, combined }) => {
-      // If latest.json exists, treat it as the canonical combined payload.
-      const base = combined || daily || intraday || null;
-      if (!base) return null;
-
-      // clone (avoid mutating fetch cache objects)
-      const out = { ...(base || {}) };
-
-      // If we *didn't* get latest.json, stitch daily+intraday into the shape the UI expects.
-      if (!combined) {
-        out.schemaVersion = daily?.schemaVersion ?? intraday?.schemaVersion ?? out.schemaVersion ?? null;
-        out.asOf = daily?.asOf ?? intraday?.asOf ?? out.asOf ?? null;
-        out.lastTradingDay = daily?.lastTradingDay ?? intraday?.lastTradingDay ?? out.lastTradingDay ?? null;
-        out.dataHealth = daily?.dataHealth ?? intraday?.dataHealth ?? out.dataHealth ?? null;
-        out.latencyMin = daily?.latencyMin ?? intraday?.latencyMin ?? out.latencyMin ?? null;
-        out.fetchedAt = daily?.fetchedAt ?? intraday?.fetchedAt ?? out.fetchedAt ?? null;
-
-        // daily_latest.json carries the daily-side fields
-        out.featuresZ = daily?.featuresZ ?? out.featuresZ ?? null;
-        out.periods = daily?.periods ?? out.periods ?? null;
-        out.daily = daily?.daily ?? out.daily ?? null;
-
-        // intraday_latest.json may be either { intraday: {...} } or already the intraday object
-        out.intraday = intraday?.intraday ?? intraday ?? out.intraday ?? null;
-      }
-
-      out._sources = {
-        ...(out?._sources || {}),
+const raw = (latest)
+  ? {
+      ...latest,
+      _sources: {
+        ...(latest?._sources || {}),
         daily: !!daily,
         intraday: !!intraday,
-        latestUrl: sources.latest?.ok ? sources.latest.url : null,
+        latestUrl: sources.latest.url,
         dailyUrl: sources.daily.url,
         intradayUrl: sources.intraday.url,
-        legacyUrl: sources.mode === "legacy" ? sources.legacy.url : null,
+        legacyUrl: null,
         mode: sources.mode,
-      };
-
-      return out;
-    };
-
-    const raw = (sources.mode === "split" && (daily || intraday))
-      ? buildSplitLatest({ daily, intraday, combined: latestJson })
-      : (legacy
-          ? {
-              ...legacy,
-              _sources: {
-                ...(legacy?._sources || {}),
-                daily: false,
-                intraday: false,
-                latestUrl: null,
-                dailyUrl: null,
-                intradayUrl: null,
-                legacyUrl: sources.legacy.url,
-                mode: sources.mode,
-              },
-            }
-          : null);
+      },
+    }
+  : (legacy
+      ? {
+          ...legacy,
+          _sources: {
+            ...(legacy?._sources || {}),
+            daily: false,
+            intraday: false,
+            latestUrl: null,
+            dailyUrl: null,
+            intradayUrl: null,
+            legacyUrl: sources.legacy.url,
+            mode: sources.mode,
+          },
+        }
+      : null);
 
 healthRef.current = { ...healthRef.current, sources };
 
@@ -927,49 +828,20 @@ healthRef.current = { ...healthRef.current, sources };
     // intraday first (so daily can use corrAvg if present)
     setIntradayFromLatest(latest);
 
-    const metaBase = {
-      source: latest?.dataHealth?.source ?? "actions",
-      dataHealthLevel: latest?.dataHealth?.level ?? null,
-      asOf: latest?.asOf ?? null,
-      lastTradingDay: latest?.lastTradingDay ?? null,
-      latencyMs: latest?.latencyMs ?? null,
-      latencyMin: latest?.latencyMin ?? null,
-      cached: Boolean(latest?.cached),
-      intraday: latest?.intraday ?? null,
-      eventWindowActive: Boolean(latest?.eventWindowActive),
-      schema: norm?.schema ?? null,
-      fetchedAt: new Date().toISOString(),
-    };
-
-    // Build period packs from schema v2.3 daily_latest.json (periods[20D/60D/252D].featuresZ)
-    const periodsComputed = {};
-    try {
-      const p = latest?.periods || null;
-      if (p && typeof p === "object") {
-        ["20D", "60D", "252D"].forEach((k) => {
-          const fz = p?.[k]?.featuresZ;
-          if (!fz) return;
-          const snap = buildDailyFromFeatures({
-            featuresZ: fz,
-            meta: { ...metaBase, lookbackKey: k, returnOnly: true },
-          });
-          if (snap) periodsComputed[k] = snap;
-        });
-      }
-    } catch (e) {
-      logger.warn("data.periods_build_failed", { message: e?.message });
-    }
-
-    // Home (A) uses 60D by default (falls back gracefully).
-    const preferredKey = periodsComputed["60D"] ? "60D" : (periodsComputed["252D"] ? "252D" : (periodsComputed["20D"] ? "20D" : null));
-    const preferredFZ = (preferredKey && latest?.periods?.[preferredKey]?.featuresZ) ? latest.periods[preferredKey].featuresZ : latest.featuresZ;
-
     buildDailyFromFeatures({
-      featuresZ: preferredFZ,
+      featuresZ: latest.featuresZ,
       meta: {
-        ...metaBase,
-        lookbackKey: preferredKey || null,
-        periods: Object.keys(periodsComputed).length ? periodsComputed : null,
+        source: latest?.dataHealth?.source ?? "actions",
+        dataHealthLevel: latest?.dataHealth?.level ?? null,
+        asOf: latest?.asOf ?? null,
+        lastTradingDay: latest?.lastTradingDay ?? null,
+        latencyMs: latest?.latencyMs ?? null,
+        latencyMin: latest?.latencyMin ?? null,
+        cached: Boolean(latest?.cached),
+        intraday: latest?.intraday ?? null,
+        eventWindowActive: Boolean(latest?.eventWindowActive),
+        schema: norm?.schema ?? null,
+        fetchedAt: new Date().toISOString(),
       },
     });
 

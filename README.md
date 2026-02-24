@@ -24,7 +24,7 @@ This system was developed for personal use with the assistance of AI tools.
 1.  **Interpretation over Prediction**
     * 현재 시장 진단 중심.
 2.  **Risk-Adjusted Confidence**
-    * 신호 충돌/데이터 불완전/장중 구조 불안정 시 자동 신뢰도 감소.
+    * 신호 충돌 시 자동 신뢰도 감소.
 3.  **Behavior-First Design**
     * 거래 신호가 아니라 의사결정 안정화 도구.
 
@@ -57,11 +57,6 @@ Distance-based probabilistic matching to predefined prototypes:
 
 *Single prediction is not used.* (확률 분포 형태로 출력됩니다.)
 
-### Lookback Windows | 기간 설정
-Primary interpretation view uses a **60-day lookback window (60D)**,
-with optional 20D and 252D comparison.
-(대표 해석 화면은 **60일(60D)**을 기본으로 사용하며, 20D/252D 비교를 제공합니다.)
-
 ### Confidence Engine | 신뢰도 엔진
 Confidence is reduced when cross-asset signals conflict.
 Examples of penalty triggers:
@@ -74,12 +69,6 @@ Examples of penalty triggers:
 
 **Multiple triggers → larger penalty.**
 (이벤트를 직접 탐지하지 않고도 지표 간 불일치로 신뢰도 조정.)
-
-Note:
-* Confidence represents overall interpretation reliability, **not scenario-specific confidence**.
-  (신뢰도는 “시나리오별”이 아니라 “전체 해석의 신뢰도” 지표입니다.)
-* End-of-day latency does not automatically reduce confidence; freshness is evaluated using actual data update timestamps.
-  (단순 지연(latency)만으로 자동 감점하지 않고, 실제 업데이트 시점을 기준으로 freshness를 평가합니다.)
 
 ---
 
@@ -95,7 +84,7 @@ Note:
 ## Mobile-First Architecture | 모바일 중심 구조
 Regime-Lookout is designed as a serverless progressive web app.
 
-* **GitHub Actions** → `public/data/daily_latest.json` / `public/data/intraday_latest.json` automated updates
+* **GitHub Actions** → `data/latest.json` update
 * **GitHub Pages** → Web App
 * **Mobile Browser** → PWA install
 
@@ -138,6 +127,8 @@ and user preference is stored locally for future sessions.
 ### Confidence Clarification | 신뢰도 설명
 Confidence represents overall interpretation reliability,
 not scenario-specific confidence.
+During market hours, the intraday interpretation is compared against the 60D daily distribution;
+divergence reduces confidence (consistency penalty).
 End-of-day latency alone does not automatically reduce confidence;
 freshness is evaluated using actual data update timestamps.
 

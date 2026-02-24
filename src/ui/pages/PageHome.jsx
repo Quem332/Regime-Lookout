@@ -4,7 +4,7 @@ import { Pill } from "../components/Pill";
 import { TagList } from "../components/TagList";
 import FactorBars from "../components/FactorBars";
 import { buildOneLineVerdict, buildScoreCopy } from "../../core/verdict";
-import { buildMriViewModel, tSafe } from "../render/mriPipeline";
+import { buildMriViewModel, tSafe, L } from "../render/mriPipeline";
 
 function isInteractiveTarget(el) {
   try {
@@ -70,20 +70,10 @@ export function PageHome({ api, tab, setTab, t, lang }) {
   const status = vm.raw?.status ?? vm.status ?? null;
 
   const asOf = vm.meta?.asOf ?? daily?.meta?.asOf ?? "";
-  const lookbackKey = daily?.meta?.lookbackKey ?? null;
-  const fmtAsOfStamp = (s) => {
-    try {
-      if (!s || typeof s !== "string") return "";
-      // Show the final computed timestamp in UTC (e.g. 2026-02-24T05:00) + lookback key.
-      const d = new Date(s);
-      if (Number.isNaN(d.getTime())) {
-        return lookbackKey ? `${s} (${lookbackKey})` : s;
-      }
-      const iso = d.toISOString().slice(0, 16);
-      return lookbackKey ? `${iso} (${lookbackKey})` : iso;
-    } catch {
-      return "";
-    }
+  const fmtAsOfDate = (s) => {
+    if (!s || typeof s !== "string") return "";
+    if (s.includes("T")) return s.split("T")[0];
+    return s;
   };
   const marketOpen = Boolean(vm.raw?.marketOpen ?? status?.marketOpen ?? false);
   const countdown = vm.raw?.timers?.countdown ?? status?.timers?.countdown ?? "--:--";
@@ -111,10 +101,46 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     setTab?.((v) => (v === "a1" ? "a2" : "a1"));
   };
 
-  // Daily core
-  const score = Number.isFinite(daily?.score) ? daily.score : null;
-  const Cfinal = Number.isFinite(daily?.Cfinal) ? daily.Cfinal : null;
-  const regime7 = daily?.regime7 ?? "--";
+  // Daily core (anchor) + Intraday (today tape)
+  const dailyScore = Number.isFinite(daily?.score) ? daily.score : null;
+  const dailyC = Number.isFinite(daily?.Cfinal) ? daily.Cfinal : null;
+
+  const hasIntradayScenario = Boolean(marketOpen && intraday?.scenario);
+  const todayScenario = hasIntradayScenario ? intraday.scenario : daily;
+
+  const score = Number.isFinite(todayScenario?.score) ? todayScenario.score : dailyScore;
+  const baseCfinal = Number.isFinite(todayScenario?.Cfinal) ? todayScenario.Cfinal : dailyC;
+  const regime7 = todayScenario?.regime7 ?? daily?.regime7 ?? "--";
+
+  const todayProbs = (todayScenario?.probs && typeof todayScenario.probs === "object") ? todayScenario.probs : (daily?.probs ?? {});
+  const todayTags = Array.isArray(todayScenario?.tags) ? todayScenario.tags : (Array.isArray(daily?.tags) ? daily.tags : []);
+
+  // Consistency: how well does today's intraday scenario align with the daily (60D) distribution?
+  const intradayTopK = (() => {
+    const tk = todayScenario?.topK;
+    if (Number.isFinite(tk)) return Number(tk);
+    const pObj = todayScenario?.probs && typeof todayScenario.probs === "object" ? todayScenario.probs : null;
+    if (!pObj) return null;
+    const top = Object.entries(pObj)
+      .map(([k, v]) => [Number(k), parseProbEntry(v).p])
+      .filter(([k, p]) => Number.isFinite(k) && typeof p === "number" && Number.isFinite(p))
+      .sort((a, b) => b[1] - a[1])[0];
+    return top ? top[0] : null;
+  })();
+
+  const consistencyP = (hasIntradayScenario && intradayTopK != null)
+    ? (typeof daily?.probs?.[String(intradayTopK)] === "number" ? Number(daily.probs[String(intradayTopK)]) : null)
+    : null;
+
+  const consistency = typeof consistencyP === "number" && Number.isFinite(consistencyP) ? clamp01(consistencyP) : null;
+
+  // Reflect consistency into confidence: divergence reduces confidence (max -20 when fully inconsistent).
+  const Cfinal = (() => {
+    if (!Number.isFinite(baseCfinal)) return null;
+    if (!hasIntradayScenario || consistency == null) return baseCfinal;
+    const penalized = Number(baseCfinal) - (1 - consistency) * 20;
+    return Math.round(clamp(penalized, 0, 100));
+  })();
 
   const V = daily?.V || daily?.vec || daily?.featuresZ || null;
   const x = Array.isArray(V) ? V[0] : V && typeof V === "object" ? V.x : null;
@@ -132,33 +158,52 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     return buildOneLineVerdict({
       score: typeof score === "number" ? score : null,
       Cfinal: typeof Cfinal === "number" ? Cfinal : null,
-      regime7: daily?.regime7 ?? null,
-      tags: daily?.tags ?? null,
+      regime7: regime7 ?? null,
+      tags: todayTags ?? null,
       t,
     });
-  }, [score, Cfinal, daily?.regime7, daily?.tags, t]);
+  }, [score, Cfinal, regime7, todayTags, t]);
 
   const scoreCopy = useMemo(() => {
     return buildScoreCopy({
       score: typeof score === "number" ? score : null,
       Cfinal: typeof Cfinal === "number" ? Cfinal : null,
-      regime7: daily?.regime7 ?? null,
-      probs: daily?.probs ?? null,
-      tags: daily?.tags ?? null,
+      regime7: regime7 ?? null,
+      probs: todayProbs ?? null,
+      tags: todayTags ?? null,
       t,
       lang,
     });
-  }, [score, Cfinal, daily?.regime7, daily?.probs, daily?.tags, t, lang]);
+  }, [score, Cfinal, regime7, todayProbs, todayTags, t, lang]);
+  const mergedReasonTags = useMemo(() => {
+    const base = Array.isArray(scoreCopy?.reasonTags) ? [...scoreCopy.reasonTags] : [];
+    if (hasIntradayScenario && typeof consistency === "number") {
+      const dTop = Number.isFinite(daily?.topK) ? Number(daily.topK) : null;
+      const iTop = intradayTopK != null ? intradayTopK : null;
+      if (dTop != null && iTop != null && dTop !== iTop) {
+        const msgKo = `일봉 #${dTop} 우세인데 장중은 #${iTop}로 이동 신호 (일치도 ${Math.round(consistency * 100)}%)`;
+        const msgEn = `Daily #${dTop} leads but intraday shifts to #${iTop} (consistency ${Math.round(consistency * 100)}%)`;
+        base.unshift({
+          level: consistency < 0.15 ? "red" : "yellow",
+          label: L("⚠️ 장중-일봉 불일치", "⚠️ Intraday diverging"),
+          msg: L(msgKo, msgEn),
+        });
+      }
+    }
+    return base;
+  }, [scoreCopy?.reasonTags, hasIntradayScenario, consistency, intradayTopK, daily?.topK, lang]);
+
+
 
   // Scenario probabilities (supports {p,c} entries)
-  const probs = daily?.probs && typeof daily.probs === "object" ? daily.probs : {};
+  const probs = todayProbs;
   const probList = useMemo(() => {
     return Object.entries(probs)
       .map(([k, v]) => [k, parseProbEntry(v)])
       .filter(([, obj]) => typeof obj?.p === "number" && Number.isFinite(obj.p))
       .sort((a, b) => b[1].p - a[1].p)
       .slice(0, 6);
-  }, [daily?.probs]);
+  }, [todayScenario?.probs, daily?.probs]);
 
   // Quadrant dot
   const dotPos = useMemo(() => {
@@ -194,7 +239,7 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       <div className={scoreLocked ? "pointer-events-none" : ""}>
       {/* A-1 (Daily) */}
       {view === "a1" ? (
-        <div className="grid gap-4">
+        <div className="grid gap-3">
           <Card title={tSafe(t, "a1.title", L("오늘", "Today"))} subtitle={tSafe(t, "a1.subtitle", L("위험조정 해석", "Risk-adjusted interpretation"))}>
             <div className="flex items-end justify-between gap-3">
               <div className="flex items-end gap-3">
@@ -212,16 +257,16 @@ export function PageHome({ api, tab, setTab, t, lang }) {
                 <div className="text-xs text-white/70">
                   {tSafe(t, "score.regime", L("레짐", "Regime"))} {String(regime7)}
                 </div>
-                <div className="text-xs text-white/60">{fmtAsOfStamp(asOf) || "--"}</div>
+                <div className="text-xs text-white/60">{fmtAsOfDate(asOf) || "--"}</div>
               </div>
             </div>
 
             <div className="mt-2 text-sm text-white/85 leading-snug">{scoreCopy?.summary ?? oneLine ?? ""}</div>
             <div className="mt-1 text-xs text-white/60 leading-snug">{scoreCopy?.warning ?? ""}</div>
 
-            {Array.isArray(scoreCopy?.reasonTags) && scoreCopy.reasonTags.length ? (
+            {Array.isArray(mergedReasonTags) && mergedReasonTags.length ? (
               <div className="mt-2">
-                <TagList tags={scoreCopy.reasonTags} lang={lang} />
+                <TagList tags={mergedReasonTags} lang={lang} />
               </div>
             ) : null}
 
@@ -235,7 +280,7 @@ export function PageHome({ api, tab, setTab, t, lang }) {
         </div>
       ) : (
         // A-2 (Intraday)
-        <div className="grid gap-4">
+        <div className="grid gap-3">
 
           <Card title={tSafe(t, "a2.factors", L("요인 (6D)", "Factors (6D)"))} subtitle={tSafe(t, "a2.factorsSub", L("z-score + raw", "z-score + raw snapshot"))}>
             <FactorBars lang={lang} V={daily?.V} raw={api?.mri?.inputsRaw ?? api?.mri?.daily?.inputsRaw ?? api?.mri?.meta?.inputsRaw} />
