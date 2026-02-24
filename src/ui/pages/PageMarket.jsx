@@ -68,6 +68,7 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
   // Common short labels
   const W_PROB = L("확률", "Prob.");
   const W_CONF = L("신뢰도", "Conf.");
+  const W_SCORE = L("점수", "Score");
 
   const vm = useMemo(() => buildMriViewModel({ api, t }), [api, t]);
   const daily = vm.raw.daily;
@@ -196,9 +197,16 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
       {view === "b1" ? (
         <div className="grid gap-3">
           <Card title={tSafe(t, "b1.title", L("기간 해석", "Period Interpretation"))} subtitle={tSafe(t, "b1.subtitle", L("구조 + 분포 (점수 없음)", "Structure + distribution (no score)"))}>
-            <div className="text-sm text-white/85 leading-snug">
-  {periodCopy?.summary ?? "--"}
-</div>
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <div className="text-sm text-white/85 leading-snug">
+                {periodCopy?.summary ?? "--"}
+              </div>
+              {Number.isFinite(periodDaily?.score) || Number.isFinite(periodDaily?.Cfinal) ? (
+                <div className="text-[11px] text-white/60 tabular-nums whitespace-nowrap">
+                  {lbKey}{Number.isFinite(periodDaily?.score) ? ` · ${W_SCORE} ${Math.round(periodDaily.score)}` : ""}{Number.isFinite(periodDaily?.Cfinal) ? ` · ${W_CONF} ${Math.round(periodDaily.Cfinal)}` : ""}
+                </div>
+              ) : null}
+            </div>
 {periodCopy?.warning ? <div className="mt-1 text-xs text-white/60 leading-snug">{periodCopy.warning}</div> : null}
 
 {Array.isArray(periodCopy?.reasonTags) && periodCopy.reasonTags.length ? (
@@ -217,12 +225,11 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
                   const label = t?.(`scenarios.${k}`, `S${k}`) ?? `S${k}`;
                   const pp = probParts(v);
                         const pct = Math.round((pp.p ?? 0) * 100);
-                        const ci = Number.isFinite(pp.c) ? pp.c : (Number.isFinite(periodDaily?.Cfinal) ? periodDaily.Cfinal : null);
                   return (
                     <div key={k} className="space-y-1">
                       <div className="flex items-center justify-between text-xs text-white/80">
                         <span className="truncate">{label}</span>
-                        <span className="tabular-nums">{`${W_PROB} ${pct}%`}{Number.isFinite(ci) ? ` · ${W_CONF} ${Math.round(ci)}` : ""}</span>
+                        <span className="tabular-nums">{`${W_PROB} ${pct}%`}</span>
                       </div>
                       <div className="h-2 rounded-full bg-white/10 overflow-hidden">
                         <div className="h-full rounded-full bg-white/30" style={{ width: `${pct}%` }} />

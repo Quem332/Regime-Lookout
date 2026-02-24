@@ -465,14 +465,18 @@ export function useMRIState() {
       return;
     }
 
-    const latencyMin = meta?.latencyMin ?? meta?.latencyMinutes ?? meta?.latency ?? null;
-const healthLevel = meta?.dataHealth?.level ?? meta?.dataHealthLevel ?? null;
+    // Freshness: do NOT use EOD/intraday market latency ("asOf" vs now) as a freshness proxy.
+    // Use the actual fetch timestamp instead. (Daily snapshots can be ~many hours behind during the day by design.)
+    const fetchedAtIso = meta?.fetchedAt ?? meta?.fetchAt ?? null;
+    const fetchedAtMs = fetchedAtIso ? Date.parse(String(fetchedAtIso)) : NaN;
+    const ageMinSinceFetch = Number.isFinite(fetchedAtMs) ? (Date.now() - fetchedAtMs) / 60000 : null;
 
-// Data considered OK if not stale and not explicitly marked bad.
-const dataOk =
-  Number.isFinite(latencyMin) ? latencyMin <= 30 : true;
-const dataOkFinal =
-  dataOk && !["BAD", "DOWN", "ERROR"].includes(String(healthLevel ?? "").toUpperCase());
+    const healthLevel = meta?.dataHealth?.level ?? meta?.dataHealthLevel ?? null;
+
+    // Data considered OK if it was fetched recently (default: 2h) and not explicitly marked bad.
+    const dataOk = Number.isFinite(ageMinSinceFetch) ? ageMinSinceFetch <= 120 : true;
+    const dataOkFinal =
+      dataOk && !["BAD", "DOWN", "ERROR"].includes(String(healthLevel ?? "").toUpperCase());
     const corrAvgDaily = intraday?.corrAvg ?? meta?.intraday?.corrAvg ?? upperTriangleAvgCorrMock();
 
 const corrSurgeDaily = Boolean(intraday?.corrSurge ?? meta?.intraday?.corrSurge ?? false);
