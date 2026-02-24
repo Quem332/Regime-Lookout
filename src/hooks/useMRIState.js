@@ -466,18 +466,13 @@ export function useMRIState() {
     }
 
     const latencyMin = meta?.latencyMin ?? meta?.latencyMinutes ?? meta?.latency ?? null;
-const healthLevel = meta?.dataHealth?.level ?? meta?.dataHealthLevel ?? null;
+    const healthLevelMeta = meta?.dataHealth?.level ?? meta?.dataHealthLevel ?? null;
 
-const healthLevel = meta?.dataHealth?.level ?? meta?.dataHealthLevel ?? null;
-
-// Freshness (project policy): updates are expected every ~30 minutes.
-// Treat latencyMin > 30 as stale. If unknown, don't penalize.
-const freshOk = (latencyMin == null || !Number.isFinite(latencyMin)) ? true : latencyMin <= 30;
-
-const dataOk = freshOk;
-const dataOkFinal =
-  dataOk && !["BAD", "DOWN", "ERROR"].includes(String(healthLevel ?? "").toUpperCase());
-
+// Data considered OK if not stale and not explicitly marked bad.
+const dataOk =
+  Number.isFinite(latencyMin) ? latencyMin <= 30 : true;
+    const dataOkFinal =
+      dataOk && !["BAD", "DOWN", "ERROR"].includes(String(healthLevelMeta ?? "").toUpperCase());
     const corrAvgDaily = intraday?.corrAvg ?? meta?.intraday?.corrAvg ?? upperTriangleAvgCorrMock();
 
 const corrSurgeDaily = Boolean(intraday?.corrSurge ?? meta?.intraday?.corrSurge ?? false);
@@ -537,8 +532,15 @@ const zShortDaily = Number.isFinite(intraday?.zShort) ? intraday.zShort : Number
       tags,
       meta,
 
+      // Period packs (20D/60D/252D) for B-page switching.
+      // Attached by the fetch/normalize layer when available.
+      periods: meta?.periods ?? null,
+
       ts: new Date(),
     };
+
+    // When building nested period packs, return without touching state.
+    if (meta?.returnOnly) return snapshot;
 
     setDaily(snapshot);
 
@@ -593,9 +595,9 @@ try {
 
     const { probs: probsTrack, passedKeys: passedKeysTrack } = computeProbabilitiesSpec(vTrack);
 
-    const healthLevel = latest?.dataHealth?.level ?? null;
+    const healthLevelLatest = latest?.dataHealth?.level ?? null;
     const dataOk =
-      !["BAD", "DOWN", "ERROR", "NONE"].includes(String(healthLevel ?? "").toUpperCase());
+      !["BAD", "DOWN", "ERROR", "NONE"].includes(String(healthLevelLatest ?? "").toUpperCase());
 
     const relTrack = computeReliabilityCSpec({
       dataOk,
@@ -739,57 +741,106 @@ if (legacy) {
 }
 
 
-    // Fetch latest.json (schema v2.3) as the canonical payload for A-pages (Score/Home/Intraday).
-    // Even in split mode (daily_latest + intraday_latest), we still rely on latest.json for featuresZ.
-    const latestInfo = await fetchJson(rawUrl("latest.json"), { timeoutMs: 15000 });
-    const latestJson = latestInfo?.data ?? null;
-    sources.latest = {
-      ok: !!latestJson,
-      url: latestInfo?.url ?? rawUrl("latest.json"),
-      errors: latestInfo?.errors ?? [],
-    };
-// Emit diagnostics to console/log so "준비중" never hides the why.
-const compactErrs = (arr) => (arr || []).map((x) => ({ url: x.url, message: x.message }));
-if (!sources.daily.ok && sources.daily.errors.length) logger.warn("data.fetch_fail.daily", compactErrs(sources.daily.errors));
-if (!sources.intraday.ok && sources.intraday.errors.length) logger.warn("data.fetch_fail.intraday", compactErrs(sources.intraday.errors));
-if (sources.mode === "legacy" && sources.legacy.errors.length) logger.warn("data.fetch_fail.legacy", compactErrs(sources.legacy.errors));
-logger.info("data.fetch_summary", {
-  mode: sources.mode,
-  latestUrl: sources.latest?.url ?? null,
-  dailyUrl: sources.daily.url,
-  intradayUrl: sources.intraday.url,
-  legacyUrl: sources.legacy.url,
-});
 
-const raw = (latestJson)
-  ? {
-      ...latestJson,
-      _sources: {
-        ...(latestJson?._sources || {}),
+    // In schema v2.3 we can publish either:
+    // - split mode: daily_latest.json + intraday_latest.json (preferred)
+    // - legacy mode: latest_legacy.json
+    // Some deployments may also publish latest.json as a combined convenience file.
+    // In split mode we *never* require latest.json: if it's missing/empty we still stitch daily+intraday.
+    let latestJson = null;
+    let latestInfo = null;
+    if (sources.mode === "split") {
+      try {
+        latestInfo = await fetchJson(rawUrl("latest.json"), { timeoutMs: 15000 });
+        latestJson = latestInfo?.data ?? null;
+      } catch (e) {
+        latestInfo = {
+          data: null,
+          url: rawUrl("latest.json"),
+          errors: [{ url: rawUrl("latest.json"), message: e?.message || String(e) }],
+        };
+        latestJson = null;
+      }
+      sources.latest = {
+        ok: !!latestJson,
+        url: latestInfo?.url ?? rawUrl("latest.json"),
+        errors: latestInfo?.errors ?? [],
+      };
+    } else {
+      sources.latest = { ok: false, url: rawUrl("latest.json"), errors: [] };
+    }
+
+    // Emit diagnostics to console/log so "준비중" never hides the why.
+    const compactErrs = (arr) => (arr || []).map((x) => ({ url: x.url, message: x.message }));
+    if (!sources.daily.ok && sources.daily.errors.length) logger.warn("data.fetch_fail.daily", compactErrs(sources.daily.errors));
+    if (!sources.intraday.ok && sources.intraday.errors.length) logger.warn("data.fetch_fail.intraday", compactErrs(sources.intraday.errors));
+    if (sources.mode === "legacy" && sources.legacy.errors.length) logger.warn("data.fetch_fail.legacy", compactErrs(sources.legacy.errors));
+    if (sources.mode === "split" && sources.latest.errors?.length) logger.warn("data.fetch_fail.latest", compactErrs(sources.latest.errors));
+    logger.info("data.fetch_summary", {
+      mode: sources.mode,
+      latestUrl: sources.latest?.url ?? null,
+      dailyUrl: sources.daily.url,
+      intradayUrl: sources.intraday.url,
+      legacyUrl: sources.legacy.url,
+    });
+
+    const buildSplitLatest = ({ daily, intraday, combined }) => {
+      // If latest.json exists, treat it as the canonical combined payload.
+      const base = combined || daily || intraday || null;
+      if (!base) return null;
+
+      // clone (avoid mutating fetch cache objects)
+      const out = { ...(base || {}) };
+
+      // If we *didn't* get latest.json, stitch daily+intraday into the shape the UI expects.
+      if (!combined) {
+        out.schemaVersion = daily?.schemaVersion ?? intraday?.schemaVersion ?? out.schemaVersion ?? null;
+        out.asOf = daily?.asOf ?? intraday?.asOf ?? out.asOf ?? null;
+        out.lastTradingDay = daily?.lastTradingDay ?? intraday?.lastTradingDay ?? out.lastTradingDay ?? null;
+        out.dataHealth = daily?.dataHealth ?? intraday?.dataHealth ?? out.dataHealth ?? null;
+        out.latencyMin = daily?.latencyMin ?? intraday?.latencyMin ?? out.latencyMin ?? null;
+        out.fetchedAt = daily?.fetchedAt ?? intraday?.fetchedAt ?? out.fetchedAt ?? null;
+
+        // daily_latest.json carries the daily-side fields
+        out.featuresZ = daily?.featuresZ ?? out.featuresZ ?? null;
+        out.periods = daily?.periods ?? out.periods ?? null;
+        out.daily = daily?.daily ?? out.daily ?? null;
+
+        // intraday_latest.json may be either { intraday: {...} } or already the intraday object
+        out.intraday = intraday?.intraday ?? intraday ?? out.intraday ?? null;
+      }
+
+      out._sources = {
+        ...(out?._sources || {}),
         daily: !!daily,
         intraday: !!intraday,
-        latestUrl: sources.latest.url,
+        latestUrl: sources.latest?.ok ? sources.latest.url : null,
         dailyUrl: sources.daily.url,
         intradayUrl: sources.intraday.url,
-        legacyUrl: null,
+        legacyUrl: sources.mode === "legacy" ? sources.legacy.url : null,
         mode: sources.mode,
-      },
-    }
-  : (legacy
-      ? {
-          ...legacy,
-          _sources: {
-            ...(legacy?._sources || {}),
-            daily: false,
-            intraday: false,
-            latestUrl: null,
-            dailyUrl: null,
-            intradayUrl: null,
-            legacyUrl: sources.legacy.url,
-            mode: sources.mode,
-          },
-        }
-      : null);
+      };
+
+      return out;
+    };
+
+    const raw = (sources.mode === "split" && (daily || intraday))
+      ? buildSplitLatest({ daily, intraday, combined: latestJson })
+      : (legacy
+          ? {
+              ...legacy,
+              _sources: {
+                ...(legacy?._sources || {}),
+                daily: false,
+                intraday: false,
+                latestUrl: null,
+                dailyUrl: null,
+                intradayUrl: null,
+                legacyUrl: sources.legacy.url,
+                mode: sources.mode,
+              },
+            }
+          : null);
 
 healthRef.current = { ...healthRef.current, sources };
 
@@ -825,20 +876,49 @@ healthRef.current = { ...healthRef.current, sources };
     // intraday first (so daily can use corrAvg if present)
     setIntradayFromLatest(latest);
 
+    const metaBase = {
+      source: latest?.dataHealth?.source ?? "actions",
+      dataHealthLevel: latest?.dataHealth?.level ?? null,
+      asOf: latest?.asOf ?? null,
+      lastTradingDay: latest?.lastTradingDay ?? null,
+      latencyMs: latest?.latencyMs ?? null,
+      latencyMin: latest?.latencyMin ?? null,
+      cached: Boolean(latest?.cached),
+      intraday: latest?.intraday ?? null,
+      eventWindowActive: Boolean(latest?.eventWindowActive),
+      schema: norm?.schema ?? null,
+      fetchedAt: new Date().toISOString(),
+    };
+
+    // Build period packs from schema v2.3 daily_latest.json (periods[20D/60D/252D].featuresZ)
+    const periodsComputed = {};
+    try {
+      const p = latest?.periods || null;
+      if (p && typeof p === "object") {
+        ["20D", "60D", "252D"].forEach((k) => {
+          const fz = p?.[k]?.featuresZ;
+          if (!fz) return;
+          const snap = buildDailyFromFeatures({
+            featuresZ: fz,
+            meta: { ...metaBase, lookbackKey: k, returnOnly: true },
+          });
+          if (snap) periodsComputed[k] = snap;
+        });
+      }
+    } catch (e) {
+      logger.warn("data.periods_build_failed", { message: e?.message });
+    }
+
+    // Home (A) uses 60D by default (falls back gracefully).
+    const preferredKey = periodsComputed["60D"] ? "60D" : (periodsComputed["252D"] ? "252D" : (periodsComputed["20D"] ? "20D" : null));
+    const preferredFZ = (preferredKey && latest?.periods?.[preferredKey]?.featuresZ) ? latest.periods[preferredKey].featuresZ : latest.featuresZ;
+
     buildDailyFromFeatures({
-      featuresZ: latest.featuresZ,
+      featuresZ: preferredFZ,
       meta: {
-        source: latest?.dataHealth?.source ?? "actions",
-        dataHealthLevel: latest?.dataHealth?.level ?? null,
-        asOf: latest?.asOf ?? null,
-        lastTradingDay: latest?.lastTradingDay ?? null,
-        latencyMs: latest?.latencyMs ?? null,
-        latencyMin: latest?.latencyMin ?? null,
-        cached: Boolean(latest?.cached),
-        intraday: latest?.intraday ?? null,
-        eventWindowActive: Boolean(latest?.eventWindowActive),
-        schema: norm?.schema ?? null,
-        fetchedAt: new Date().toISOString(),
+        ...metaBase,
+        lookbackKey: preferredKey || null,
+        periods: Object.keys(periodsComputed).length ? periodsComputed : null,
       },
     });
 
