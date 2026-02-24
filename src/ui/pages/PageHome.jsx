@@ -47,6 +47,21 @@ function parseProbEntry(v) {
   return { p: null, c: null };
 }
 
+function formatAsOfShortUtc(asOf) {
+  try {
+    const d = new Date(asOf);
+    if (!Number.isFinite(d.getTime())) return String(asOf || "");
+    const yyyy = d.getUTCFullYear();
+    const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(d.getUTCDate()).padStart(2, "0");
+    const hh = String(d.getUTCHours()).padStart(2, "0");
+    const mi = String(d.getUTCMinutes()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+  } catch {
+    return String(asOf || "");
+  }
+}
+
 export function PageHome({ api, tab, setTab, t, lang }) {
   const isKo = String(lang || "").toLowerCase().startsWith("ko");
   const L = (ko, en) => (isKo ? ko : en);
@@ -56,11 +71,22 @@ export function PageHome({ api, tab, setTab, t, lang }) {
 
   const vm = useMemo(() => buildMriViewModel({ api, t }), [api, t]);
 
-  const daily = vm.raw?.daily ?? vm.daily ?? null;
+  const dailyRaw = vm.raw?.daily ?? vm.daily ?? null;
   const intraday = vm.raw?.intraday ?? vm.intraday ?? null;
   const status = vm.raw?.status ?? vm.status ?? null;
 
-  const asOf = vm.meta?.asOf ?? daily?.meta?.asOf ?? "";
+  // Home default: show a "medium-horizon" daily snapshot.
+  // - 20D can be too twitchy for non-experts
+  // - 252D can be too slow to reflect recent shifts
+  // So 60D is a good default.
+  const HOME_LOOKBACK_KEY = "60D";
+  const daily = dailyRaw?.periods?.[HOME_LOOKBACK_KEY] ?? dailyRaw;
+
+  const asOfRaw = vm.meta?.asOf ?? daily?.meta?.asOf ?? daily?.asOf ?? "";
+  const asOfLabel = formatAsOfShortUtc(asOfRaw);
+  const asOfWithLookback = dailyRaw?.periods?.[HOME_LOOKBACK_KEY]
+    ? `${asOfLabel} (${HOME_LOOKBACK_KEY})`
+    : asOfLabel;
   const marketOpen = Boolean(vm.raw?.marketOpen ?? status?.marketOpen ?? false);
   const countdown = vm.raw?.timers?.countdown ?? status?.timers?.countdown ?? "--:--";
 
@@ -183,7 +209,7 @@ export function PageHome({ api, tab, setTab, t, lang }) {
                 <div className="text-xs text-white/70">
                   {tSafe(t, "score.regime", L("레짐", "Regime"))} {String(regime7)}
                 </div>
-                <div className="text-xs text-white/60">{asOf || "--"}</div>
+                <div className="text-xs text-white/60">{asOfWithLookback || "--"}</div>
               </div>
             </div>
 

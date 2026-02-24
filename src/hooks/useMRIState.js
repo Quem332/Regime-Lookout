@@ -455,9 +455,14 @@ export function useMRIState() {
     const latencyMinPack = metaPack?.latencyMin ?? metaPack?.latencyMinutes ?? metaPack?.latency ?? null;
     const healthLevelPack = metaPack?.dataHealth?.level ?? metaPack?.dataHealthLevel ?? null;
 
-    const dataOk = Number.isFinite(latencyMinPack) ? latencyMinPack <= 30 : true;
+    // IMPORTANT:
+    // - daily_latest.json is end-of-day and can legitimately be many hours "old" relative to now.
+    // - intraday_latest.json is the one that must be fresh (<= ~30m) during market hours.
+    // If intraday data is not present, do NOT cap confidence just because the daily snapshot is old.
+    const hasIntraday = Boolean(metaPack?.intraday ?? latestRef.current?.intraday);
+    const dataOkFresh = hasIntraday ? (Number.isFinite(latencyMinPack) ? latencyMinPack <= 30 : true) : true;
     const dataOkFinal =
-      dataOk && !["BAD", "DOWN", "ERROR", "NONE"].includes(String(healthLevelPack ?? "").toUpperCase());
+      dataOkFresh && !["BAD", "DOWN", "ERROR", "NONE"].includes(String(healthLevelPack ?? "").toUpperCase());
 
     const intr = metaPack?.intraday ?? latestRef.current?.intraday ?? null;
 
