@@ -76,6 +76,11 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
   const [lookback, setLookback] = useState(() => loadLookback("20d"));
   const dailyRoot = daily ?? null;
   const dailyPeriods = dailyRoot?.periods ?? null;
+  const sources = api?.health?.sources ?? null;
+  const pendingPeriods = ["20d","60d","252d"].filter((k)=>{
+    const available = !!dailyPeriods?.[k] || (!dailyPeriods && k==="20d");
+    return !available;
+  }).map((k)=>k.toUpperCase());
   const lbKey = String(lookback || "20d").toUpperCase(); // "20D"
   const periodDaily = (dailyPeriods && dailyPeriods[lbKey]) ? dailyPeriods[lbKey] : (!dailyPeriods && lbKey === "20D" ? dailyRoot : null);
 
@@ -146,8 +151,10 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
   return (
     <div className="px-4 pb-6 min-h-[calc(100dvh-4rem)]" onPointerDown={onPointerDown} onPointerUp={onPointerUp} style={{ touchAction: "pan-y" }}>
       <div className="mb-3 flex items-center justify-between gap-2">
-        {/* Period is already communicated by the toggle buttons; keep header clean. */}
-        <div className="text-xs text-white/60">{dataMissing ? tSafe(t, "b.na", L("데이터 없음", "No data")) : ""}</div>
+        <div className="text-xs text-white/60">
+          {t?.("b.lookback", "Lookback") ?? "Lookback"}: {lookback.toUpperCase()}
+          {dataMissing ? ` · ${tSafe(t, "b.na", L("데이터 없음", "No data"))}` : ""}
+        </div>
         <div className="flex items-center gap-1">
           {[
             { k: "20d", label: "20D" },
@@ -155,8 +162,7 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
             { k: "252d", label: "252D" },
           ].map((opt) => {
             const key = opt.label; // "20D/60D/252D"
-            // Compatibility: some builds store period keys as "20D" while others store "20d".
-            const available = !!dailyPeriods?.[key] || !!dailyPeriods?.[key.toLowerCase()] || (!dailyPeriods && opt.k === "20d");
+            const available = !!dailyPeriods?.[key] || (!dailyPeriods && opt.k === "20d");
             const label = available ? opt.label : tSafe(t, "period.btn.pending", L(`${opt.label} (준비중)`, `${opt.label} (pending)`));
             return (
               <button
@@ -180,18 +186,26 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
           })}
         </div>
       </div>
+
+      {(pendingPeriods.length > 0 || (sources && sources.mode === "legacy")) && (
+        <div className="mb-3 text-[11px] text-white/55">
+          <div className="font-medium text-white/70">Data diagnostics</div>
+          {pendingPeriods.length > 0 && (
+            <div>
+              Missing periods: <span className="text-white/80">{pendingPeriods.join(", ")}</span> (shows 준비중)
+            </div>
+          )}
+          {sources && (
+            <div className="text-white/45">
+              mode={sources.mode} · daily={sources.daily?.url || "-"} · intraday={sources.intraday?.url || "-"} · legacy={sources.legacy?.url || "-"}
+            </div>
+          )}
+        </div>
+      )}
+
       {view === "b1" ? (
         <div className="grid gap-3">
-          <Card title={tSafe(t, "b1.title", L("기간 해석", "Period Interpretation"))} subtitle={tSafe(t, "b1.subtitle", L("구조 + 분포", "Structure + distribution"))}>
-
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-white/70">
-              <div className="tabular-nums">
-                {tSafe(t, "score.regime", L("레짐", "Regime"))}: {String(periodDaily?.regime7 ?? "--")}
-              </div>
-              <div className="tabular-nums">
-                {tSafe(t, "score.titleTop", L("점수", "Score"))}: {Number.isFinite(periodDaily?.score) ? Math.round(periodDaily.score) : "--"} · {tSafe(t, "score.reliability", L("신뢰도", "Reliability"))}: {Number.isFinite(periodDaily?.Cfinal) ? Math.round(periodDaily.Cfinal) : "--"}
-              </div>
-            </div>
+          <Card title={tSafe(t, "b1.title", L("기간 해석", "Period Interpretation"))} subtitle={tSafe(t, "b1.subtitle", L("구조 + 분포 (점수 없음)", "Structure + distribution (no score)"))}>
             <div className="text-sm text-white/85 leading-snug">
   {periodCopy?.summary ?? "--"}
 </div>
@@ -213,11 +227,12 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
                   const label = t?.(`scenarios.${k}`, `S${k}`) ?? `S${k}`;
                   const pp = probParts(v);
                         const pct = Math.round((pp.p ?? 0) * 100);
-                        return (
+                        const ci = Number.isFinite(pp.c) ? pp.c : (Number.isFinite(periodDaily?.Cfinal) ? periodDaily.Cfinal : null);
+                  return (
                     <div key={k} className="space-y-1">
                       <div className="flex items-center justify-between text-xs text-white/80">
                         <span className="truncate">{label}</span>
-                        <span className="tabular-nums">{`${W_PROB} ${pct}%`}</span>
+                        <span className="tabular-nums">{`${W_PROB} ${pct}%`}{Number.isFinite(ci) ? ` · ${W_CONF} ${Math.round(ci)}` : ""}</span>
                       </div>
                       <div className="h-2 rounded-full bg-white/10 overflow-hidden">
                         <div className="h-full rounded-full bg-white/30" style={{ width: `${pct}%` }} />
@@ -241,7 +256,7 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
                 {tSafe(t, "ui.dataMissing", L("데이터가 없어 표시할 수 없습니다. (Actions에서 데이터 업데이트를 실행하세요)", "Data is missing. (Run a data update workflow in Actions)"))}
               </div>
             ) : (
-              <FactorBars lang={lang} V={viewModel?.V} raw={periodDaily?.inputsRaw ?? dailyRoot?.inputsRaw ?? dailyRoot?.meta?.inputsRaw ?? null} />
+              <FactorBars V={viewModel?.V} raw={periodDaily?.inputsRaw ?? dailyRoot?.inputsRaw ?? dailyRoot?.meta?.inputsRaw ?? null} />
             )}
           </Card>
 
@@ -252,10 +267,11 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
                 <div className="absolute top-1/2 left-0 right-0 h-px bg-white/10" />
               </div>
 
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] text-white/60">{tSafe(t, "quadrant.defense", L("방어", "Defense"))}</div>
-              <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-white/60">{tSafe(t, "quadrant.growth", L("성장", "Growth"))}</div>
-              <div className="absolute left-1/2 bottom-2 -translate-x-1/2 text-[10px] text-white/60">{tSafe(t, "quadrant.outflow", L("유출", "Outflow"))}</div>
-              <div className="absolute left-1/2 top-2 -translate-x-1/2 text-[10px] text-white/60">{tSafe(t, "quadrant.inflow", L("유입", "Inflow"))}</div>
+              {/* Edge labels (more intuitive than corners) */}
+              <div className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-white/60">{t?.("quadrant.defense", "Defense") ?? "Defense"}</div>
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-white/60">{t?.("quadrant.growth", "Growth") ?? "Growth"}</div>
+              <div className="absolute left-1/2 top-2 -translate-x-1/2 text-[10px] text-white/60">{t?.("quadrant.inflow", "Inflow") ?? "Inflow"}</div>
+              <div className="absolute left-1/2 bottom-2 -translate-x-1/2 text-[10px] text-white/60">{t?.("quadrant.outflow", "Outflow") ?? "Outflow"}</div>
 
               <div
                 className="absolute w-3 h-3 rounded-full bg-white/70 shadow"

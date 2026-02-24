@@ -29,10 +29,6 @@ import { idbGet, idbSet } from "../storage/idb";
 const APP_BASE = import.meta.env.BASE_URL ?? "/";
 const ABS_BASE = new URL(APP_BASE, document.baseURI).toString();
 
-// Primary lookback window used for the main (A/Score) interpretation.
-// (Other windows still exist under daily.periods for comparison pages.)
-const PRIMARY_LOOKBACK_KEY = "60D";
-
 // Prefer fetching data from the dedicated `data` branch (raw.githubusercontent.com)
 // so GitHub Pages deploy does NOT rebuild on every 5-min data refresh.
 const DEFAULT_DATA_REPO = "Quem332/Regime-Lookout";
@@ -74,7 +70,6 @@ async function fetchJson(url, { timeoutMs = 12_000, retries = 2 } = {}) {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), timeoutMs);
     const started = performance.now();
-
     try {
       logger.debug("net.fetch_start", { url, attempt, timeoutMs });
       const res = await fetch(url, {
@@ -131,12 +126,6 @@ function num(x, fallback = 0) {
   const n = Number(x);
   return Number.isFinite(n) ? n : fallback;
 }
-
-// zero-pad for timestamps (prevents runtime ReferenceError in production bundles)
-function pad2(n) {
-  return String(n).padStart(2, "0");
-}
-
 
 // Event calendar: { "events":[{"date":"YYYY-MM-DD","time":"HH:MM","name":"CPI"}] }
 function parseCalendar(cal) {
@@ -451,65 +440,31 @@ export function useMRIState() {
   const latestRef = useRef(null); // last latest.json payload
   const calRef = useRef({ events: [], loaded: false });
   const healthRef = useRef({ lastOkAt: null, lastError: null, lastErrorAt: null, schema: null });
+  const buildDailyFromFeatures = ({ featuresZ, meta }) => {
+    const started = performance.now();
+    const V = [featuresZ.x, featuresZ.y, featuresZ.rates, featuresZ.usd, featuresZ.vix, featuresZ.goldFear].map((v) => num(v, 0));
 
-  function computeDailyPack(featuresZPack, metaPack) {
-    const V = [
-      featuresZPack?.x,
-      featuresZPack?.y,
-      featuresZPack?.rates,
-      featuresZPack?.usd,
-      featuresZPack?.vix,
-      featuresZPack?.goldFear,
-    ].map((v) => num(v, 0));
+    const isAllZeroV = V.every((v) => v === 0);
+    if (isAllZeroV && daily && daily?.meta?.dataHealthLevel !== "MOCK") {
+      return;
+    }
 
-    const healthLevelPack = metaPack?.dataHealth?.level ?? metaPack?.dataHealthLevel ?? null;
+    const latencyMin = meta?.latencyMin ?? meta?.latencyMinutes ?? meta?.latency ?? null;
+const healthLevel = meta?.dataHealth?.level ?? meta?.dataHealthLevel ?? null;
 
-    // IMPORTANT:
-    // - daily_latest.json is end-of-day and can legitimately be many hours "old" relative to now.
-    //   (meta.latencyMin is "asOf" lag, NOT a fetch freshness signal)
-    // - intraday freshness should be judged by WHEN we fetched intraday_latest.json (or the embedded
-    //   intraday block), not by daily latency.
-    const hasIntraday = Boolean(metaPack?.intraday ?? latestRef.current?.intraday);
+// Data considered OK if not stale and not explicitly marked bad.
+const dataOk =
+  Number.isFinite(latencyMin) ? latencyMin <= 30 : true;
+const dataOkFinal =
+  dataOk && !["BAD", "DOWN", "ERROR"].includes(String(healthLevel ?? "").toUpperCase());
+    const corrAvgDaily = intraday?.corrAvg ?? meta?.intraday?.corrAvg ?? upperTriangleAvgCorrMock();
 
-    const fetchedAtIso = metaPack?.fetchedAt ?? latestRef.current?.fetchedAt ?? null;
-    const fetchedAtMs = fetchedAtIso ? Date.parse(fetchedAtIso) : NaN;
-    const ageMinSinceFetch = Number.isFinite(fetchedAtMs) ? (Date.now() - fetchedAtMs) / 60000 : null;
+const corrSurgeDaily = Boolean(intraday?.corrSurge ?? meta?.intraday?.corrSurge ?? false);
+const zShortDaily = Number.isFinite(intraday?.zShort) ? intraday.zShort : Number.isFinite(meta?.intraday?.zShort) ? meta.intraday.zShort : 0;
 
-    // If we have intraday payload, require it to be "recently fetched" (default: <= 2h).
-    // (2h is intentionally loose to avoid hard-capping during overnight / gate-off windows.)
-    const dataOkFresh = hasIntraday ? (ageMinSinceFetch == null ? true : ageMinSinceFetch <= 120) : true;
-
-    const dataOkFinal =
-      dataOkFresh && !["BAD", "DOWN", "ERROR", "NONE"].includes(String(healthLevelPack ?? "").toUpperCase());
-
-    const intr = metaPack?.intraday ?? latestRef.current?.intraday ?? null;
-
-    const corrAvgDaily =
-      (typeof intr?.corrAvg === "number" && Number.isFinite(intr.corrAvg))
-        ? intr.corrAvg
-        : (typeof metaPack?.intraday?.corrAvg === "number" && Number.isFinite(metaPack.intraday.corrAvg))
-          ? metaPack.intraday.corrAvg
-          : upperTriangleAvgCorrMock();
-
-    const corrSurgeDaily = Boolean(intr?.corrSurge ?? metaPack?.intraday?.corrSurge ?? false);
-
-    const zShortDaily =
-      (typeof intr?.zShort === "number" && Number.isFinite(intr.zShort))
-        ? intr.zShort
-        : (typeof metaPack?.intraday?.zShort === "number" && Number.isFinite(metaPack.intraday.zShort))
-          ? metaPack.intraday.zShort
-          : 0;
 
     const { probs, passedKeys } = computeProbabilitiesSpec(V);
-    const rel = computeReliabilityCSpec({
-      dataOk: dataOkFinal,
-      corrAvg: corrAvgDaily,
-      corrSurge: corrSurgeDaily,
-      zShort: zShortDaily,
-      V,
-      probs,
-    });
-
+    const rel = computeReliabilityCSpec({ dataOk: dataOkFinal, corrAvg: corrAvgDaily, corrSurge: corrSurgeDaily, zShort: zShortDaily, V, probs });
     const Cfinal = rel.C;
     const regime7 = computeRegime7Spec({ passedKeys, Cfinal, V });
     const scorePack = computeTodayScoreSpec({ probs, Cfinal, corrAvg: corrAvgDaily, V, regime7 });
@@ -517,24 +472,22 @@ export function useMRIState() {
     const topEntry = Object.entries(probs).sort((a, b) => b[1] - a[1])[0];
     const topK = topEntry ? Number(topEntry[0]) : null;
 
-    const tags = buildReasoningTags({
-      V,
-      corrAvg: corrAvgDaily,
-      corrSurge: corrSurgeDaily,
-      zShort: zShortDaily,
-      probs,
-      Cfinal,
-    });
+    const tags = buildReasoningTags({ V, corrAvg: corrAvgDaily, corrSurge: corrSurgeDaily, zShort: zShortDaily, probs, Cfinal });
 
+    // buildScenarioPackFromIntraday expects a "latest-like" payload (featuresZ + intraday + dataHealth).
+    // During daily rebuild, the normalized payload lives in latestRef.current; fall back to the inputs we have
+    // to avoid ReferenceError("latest is not defined") and to keep the UI stable.
     const latestLike =
-      latestRef.current || {
-        featuresZ: featuresZPack,
-        intraday: metaPack?.intraday ?? null,
-        dataHealth: { level: metaPack?.dataHealthLevel ?? null },
+      latestRef.current ||
+      {
+        featuresZ,
+        intraday: meta?.intraday ?? null,
+        dataHealth: { level: meta?.dataHealthLevel ?? null },
       };
 
-    return {
+    const snapshot = {
       scenario: buildScenarioPackFromIntraday(latestLike),
+      // core outputs
       V,
       probs,
       passedKeys,
@@ -543,42 +496,28 @@ export function useMRIState() {
       Cfinal,
       caps: rel.caps,
       regime7,
-      asOf: metaPack?.asOf ?? null,
-      regime: regime7 ?? (topK != null ? String(topK) : null),
+      // UI-friendly fields (legacy UIs expect these at top-level)
+      asOf: meta?.asOf ?? null,
+      regime: (regime7 ?? (topK != null ? String(topK) : null)),
       score: scorePack.score,
+      pEff: scorePack.pEff,
+      penaltyApplied: scorePack.penaltyApplied,
+      flags: scorePack.flags,
+
+      // convenience fields for UI/export (avoid deep meta chains)
+      asOf: meta?.asOf ?? null,
+      lastTradingDay: meta?.lastTradingDay ?? null,
+      fetchedAt: meta?.fetchedAt ?? null,
+      source: meta?.source ?? null,
+      dataHealthLevel: meta?.dataHealthLevel ?? null,
+
+      // diagnostics
+      corrAvgDaily,
       tags,
-      meta: metaPack ?? null,
+      meta,
+
+      ts: new Date(),
     };
-  }
-
-  const buildDailyFromFeatures = ({ featuresZ, periods, meta }) => {
-    const started = performance.now();
-    const baseSnapshot = computeDailyPack(featuresZ, meta);
-
-    // Guard against all-zero vectors (keeps UI stable if data got corrupted)
-    const isAllZeroV = Array.isArray(baseSnapshot?.V) && baseSnapshot.V.every((v) => v === 0);
-    if (isAllZeroV && daily && daily?.meta?.dataHealthLevel !== "MOCK") {
-      return;
-    }
-
-    // Expand per-lookback packs (20D/60D/252D) if provided by daily_latest.json
-    let periodPacks = null;
-    try {
-      if (periods && typeof periods === "object") {
-        periodPacks = {};
-        for (const [k, v] of Object.entries(periods)) {
-          const key = String(k || "").toUpperCase();
-          const fz = v?.featuresZ;
-          if (!fz || typeof fz !== "object") continue;
-          periodPacks[key] = computeDailyPack(fz, { ...meta, lookbackKey: key });
-        }
-      }
-    } catch (e) {
-      logger.warn("state.daily_periods_build_failed", { message: e?.message });
-      periodPacks = null;
-    }
-
-    const snapshot = { ...baseSnapshot, periods: periodPacks };
 
     setDaily(snapshot);
 
@@ -589,30 +528,24 @@ export function useMRIState() {
 
 // Self-checks (helps catch corrupted data / engine regressions)
 try {
-  const probs0 = snapshot?.probs ?? null;
-  const sumP = probs0 && typeof probs0 === "object"
-    ? Object.values(probs0).reduce((a,b)=>a+(typeof b==="number"?b:0),0)
-    : null;
-  if (sumP != null && (!Number.isFinite(sumP) || Math.abs(sumP - 1) > 0.02)) {
-    logger.warn("engine.prob_sum_suspicious", { sumP, probs: probs0 });
+  const sumP = Object.values(probs).reduce((a,b)=>a+(typeof b==="number"?b:0),0);
+  if (!Number.isFinite(sumP) || Math.abs(sumP - 1) > 0.02) {
+    logger.warn("engine.prob_sum_suspicious", { sumP, probs });
   }
-  const c0 = snapshot?.Cfinal;
-  if (!Number.isFinite(c0) || c0 < 0 || c0 > 100) {
-    logger.warn("engine.confidence_out_of_range", { Cfinal: c0 });
+  if (!Number.isFinite(Cfinal) || Cfinal < 0 || Cfinal > 100) {
+    logger.warn("engine.confidence_out_of_range", { Cfinal, caps: rel.caps });
   }
 } catch (e) {
   logger.warn("engine.selfcheck_failed", { message: e?.message });
 }
-
     logger.debug("state.daily_refresh_ok", {
       ms: Math.round(performance.now() - started),
-      topK: snapshot?.topK ?? null,
-      score: snapshot?.score ?? null,
-      Cfinal: snapshot?.Cfinal ?? null,
-      regime7: snapshot?.regime7 ?? null,
+      topK,
+      score: scorePack.score,
+      Cfinal,
+      regime7,
       asOf: meta?.asOf,
       source: meta?.source,
-      periodsBuilt: snapshot?.periods ? Object.keys(snapshot.periods).length : 0,
     });
   };
   const buildScenarioPackFromIntraday = (latest) => {
@@ -714,50 +647,121 @@ try {
     );
   };
 
-  const fetchFirst = async (urlList, opts) => {
-    let lastErr = null;
-    for (const u of urlList) {
-      try {
-        return await fetchJson(u, opts);
-      } catch (e) {
-        lastErr = e;
-      }
+  // Try a list of URLs in order; returns first successful result + context for diagnostics.
+const fetchFirstInfo = async (urlList, opts) => {
+  const errors = [];
+  for (const url of urlList) {
+    try {
+      const data = await fetchJson(url, opts);
+      return { data, url, errors };
+    } catch (e) {
+      errors.push({
+        url,
+        message: e?.message || String(e),
+      });
     }
-    throw lastErr || new Error("all fetch attempts failed");
-  };
+  }
+  const err = new Error("All data sources failed");
+  err.errors = errors;
+  throw err;
+};
+
+// Back-compat helper (existing code expects only data)
+const fetchFirst = async (urlList, opts) => {
+  const info = await fetchFirstInfo(urlList, opts);
+  return info.data;
+};
+
 
   const refreshLatest = async () => {
     const started = performance.now();
     const bust = `?t=${Date.now()}`;
 
     // Prefer split files (daily + intraday). If not present, fall back to legacy single-file.
-    const [daily, intraday] = await Promise.all([
-      fetchFirst(DAILY_URLS.map((u) => `${u}${bust}`), { timeoutMs: 15_000 }).catch(() => null),
-      fetchFirst(INTRADAY_URLS.map((u) => `${u}${bust}`), { timeoutMs: 15_000 }).catch(() => null),
-    ]);
+const [dailyInfo, intradayInfo] = await Promise.all([
+  fetchFirstInfo(DAILY_URLS.map((u) => `${u}${bust}`), { timeoutMs: 15_000 }).catch((e) => ({
+    data: null,
+    url: null,
+    errors: e?.errors || [{ url: "(daily)", message: e?.message || String(e) }],
+  })),
+  fetchFirstInfo(INTRADAY_URLS.map((u) => `${u}${bust}`), { timeoutMs: 15_000 }).catch((e) => ({
+    data: null,
+    url: null,
+    errors: e?.errors || [{ url: "(intraday)", message: e?.message || String(e) }],
+  })),
+]);
 
-    const raw = daily || intraday
+const daily = dailyInfo?.data || null;
+const intraday = intradayInfo?.data || null;
+
+const sources = {
+  daily: { ok: !!daily, url: dailyInfo?.url || null, errors: dailyInfo?.errors || [] },
+  intraday: { ok: !!intraday, url: intradayInfo?.url || null, errors: intradayInfo?.errors || [] },
+  legacy: { ok: false, url: null, errors: [] },
+  mode: (daily || intraday) ? "split" : "legacy",
+};
+
+// If split isn't available, attempt legacy.
+const legacyInfo = (daily || intraday)
+  ? null
+  : await fetchFirstInfo(LEGACY_LATEST_URLS.map((u) => `${u}${bust}`), { timeoutMs: 15_000 }).catch((e) => ({
+      data: null,
+      url: null,
+      errors: e?.errors || [{ url: "(legacy)", message: e?.message || String(e) }],
+    }));
+
+const legacy = legacyInfo?.data || null;
+if (legacy) {
+  sources.legacy = { ok: true, url: legacyInfo?.url || null, errors: legacyInfo?.errors || [] };
+} else if (legacyInfo) {
+  sources.legacy = { ok: false, url: legacyInfo?.url || null, errors: legacyInfo?.errors || [] };
+}
+
+// Emit diagnostics to console/log so "준비중" never hides the why.
+const compactErrs = (arr) => (arr || []).map((x) => ({ url: x.url, message: x.message }));
+if (!sources.daily.ok && sources.daily.errors.length) logger.warn("data.fetch_fail.daily", compactErrs(sources.daily.errors));
+if (!sources.intraday.ok && sources.intraday.errors.length) logger.warn("data.fetch_fail.intraday", compactErrs(sources.intraday.errors));
+if (sources.mode === "legacy" && sources.legacy.errors.length) logger.warn("data.fetch_fail.legacy", compactErrs(sources.legacy.errors));
+logger.info("data.fetch_summary", {
+  mode: sources.mode,
+  dailyUrl: sources.daily.url,
+  intradayUrl: sources.intraday.url,
+  legacyUrl: sources.legacy.url,
+});
+
+const raw = (daily || intraday)
+  ? {
+      daily,
+      intraday,
+      fetchedAt: intraday?.fetchedAt || daily?.fetchedAt || null,
+      asof: intraday?.asof || daily?.asof || null,
+      _sources: {
+        daily: !!daily,
+        intraday: !!intraday,
+        dailyUrl: sources.daily.url,
+        intradayUrl: sources.intraday.url,
+        legacyUrl: null,
+        mode: sources.mode,
+      },
+    }
+  : (legacy
       ? {
-          schemaVersion: daily?.schemaVersion || intraday?.schemaVersion || "2.3",
-          asOf: daily?.asOf || intraday?.asOf || null,
-          lastTradingDay: daily?.lastTradingDay || null,
-          // Daily inputs
-          featuresZ: daily?.featuresZ || null,
-          periods: daily?.periods || null,
-          // Intraday inputs
-          intraday: intraday?.intraday || null,
-          // Meta
-          dataHealth: daily?.dataHealth || intraday?.dataHealth || null,
-          latencyMin:
-            typeof intraday?.latencyMin === "number"
-              ? intraday.latencyMin
-              : typeof daily?.latencyMin === "number"
-                ? daily.latencyMin
-                : null,
-          fetchedAt: intraday?.fetchedAt || daily?.fetchedAt || null,
-          _sources: { daily: !!daily, intraday: !!intraday },
+          ...legacy,
+          _sources: {
+            ...(legacy?._sources || {}),
+            daily: false,
+            intraday: false,
+            dailyUrl: null,
+            intradayUrl: null,
+            legacyUrl: sources.legacy.url,
+            mode: sources.mode,
+          },
         }
-      : await fetchFirst(LEGACY_LATEST_URLS.map((u) => `${u}${bust}`), { timeoutMs: 15_000 });
+      : null);
+
+healthRef.current = { ...healthRef.current, sources };
+
+    if (!raw) throw new Error("Failed to load MRI data (daily/intraday/legacy all failed)");
 
     // If split files didn't exist AND legacy is also missing/invalid, normalizeLatest will fail.
     // That case is handled below with a clear "data pending" UI message.
@@ -791,7 +795,6 @@ try {
 
     buildDailyFromFeatures({
       featuresZ: latest.featuresZ,
-      periods: latest.periods,
       meta: {
         source: latest?.dataHealth?.source ?? "actions",
         dataHealthLevel: latest?.dataHealth?.level ?? null,
@@ -956,14 +959,11 @@ try {
       ? `${String(fetchedAtDate.getHours()).padStart(2, "0")}:${String(fetchedAtDate.getMinutes()).padStart(2, "0")}`
       : null;
 
-    // Display as a stable UTC stamp without timezone suffix.
-    const asOfUTC = asOfDate
-      ? `${asOfDate.getUTCFullYear()}-${pad2(asOfDate.getUTCMonth() + 1)}-${pad2(asOfDate.getUTCDate())}T${pad2(asOfDate.getUTCHours())}:${pad2(asOfDate.getUTCMinutes())}`
+    const asOfLabel = asOfDate
+      ? `${String(asOfDate.getHours()).padStart(2, "0")}:${String(asOfDate.getMinutes()).padStart(2, "0")}`
       : null;
-    const asOfShort = asOfUTC ? `${asOfUTC}(${PRIMARY_LOOKBACK_KEY})` : null;
 
-    // Keep the top-right pill compact (time-only). The detailed as-of/date belongs in cards.
-    const topLabel = fetchedLabel ? `SYNC ${fetchedLabel}` : tonePack.label;
+    const topLabel = fetchedLabel ? `SYNC ${fetchedLabel}` : asOfLabel ? `DATA ${asOfLabel}` : tonePack.label;
 
     // Health badge: color-only (legacy thresholds)
 // - <=10m: green
@@ -1016,6 +1016,7 @@ try {
       lastError: h?.lastError ?? null,
       lastErrorAt: h?.lastErrorAt ?? null,
       schema: h?.schema ?? null,
+      sources: h?.sources ?? null,
     };
 
     return {
@@ -1024,7 +1025,6 @@ try {
         label: topLabel,
         latencyMin,
         asOf: asOfStr,
-        asOfShort,
         fetchedAt: fetchedAtStr,
       },
       health,
@@ -1048,13 +1048,10 @@ try {
     setStatus(statusComputed);
   }, [statusComputed]);
 
-  const dailyPrimary = useMemo(() => daily?.periods?.[PRIMARY_LOOKBACK_KEY] ?? daily, [daily]);
-
   return {
     // Back-compat: expose both top-level and nested "mri" so UI pages can safely read api.mri.*
-    mri: { daily, dailyPrimary, intraday, status: statusComputed, refreshLatest },
+    mri: { daily, intraday, status: statusComputed, refreshLatest },
     daily,
-    dailyPrimary,
     intraday,
     status: statusComputed,
     refreshLatest,
