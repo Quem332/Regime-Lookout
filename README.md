@@ -117,6 +117,19 @@ It helps users:
 * Data may be delayed or incomplete.
 * **Regime-Lookout is an analytical interpretation tool, not financial advice.**
 
+
+### Language Support | 언어 지원
+Language is automatically detected on first visit based on browser settings (ko/en),
+and user preference is stored locally for future sessions.
+(첫 방문 시 브라우저 언어를 감지하여 기본 언어를 설정하고,
+이후에는 사용자 선택을 로컬에 저장하여 유지합니다.)
+
+### Confidence Clarification | 신뢰도 설명
+Confidence represents overall interpretation reliability,
+not scenario-specific confidence.
+End-of-day latency alone does not automatically reduce confidence;
+freshness is evaluated using actual data update timestamps.
+
 ## Project Status
 Active development.
 Current focus:

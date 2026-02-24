@@ -352,3 +352,26 @@ export function createT(dict) {
   t.hub = safeDict.hub || I18N.en.hub;
   return t;
 }
+
+
+// --- Language auto-detect & persist ---
+export function detectDefaultLang() {
+  try {
+    const saved = localStorage.getItem("lang");
+    if (saved === "ko" || saved === "en") return saved;
+  } catch(e) {}
+
+  try {
+    const nav = (navigator.language || "").toLowerCase();
+    return nav.startsWith("ko") ? "ko" : "en";
+  } catch(e) {
+    return "en";
+  }
+}
+
+export function persistLang(lang) {
+  try {
+    if (lang === "ko" || lang === "en")
+      localStorage.setItem("lang", lang);
+  } catch(e) {}
+}
