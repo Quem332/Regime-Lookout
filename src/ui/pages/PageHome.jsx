@@ -51,6 +51,15 @@ export function PageHome({ api, tab, setTab, t, lang }) {
   const isKo = String(lang || "").toLowerCase().startsWith("ko");
   const L = (ko, en) => (isKo ? ko : en);
 
+  const fmtMMSS = (sec) => {
+    const s = Math.max(0, Math.floor(sec || 0));
+    const hh = Math.floor(s / 3600);
+    const mm = Math.floor((s % 3600) / 60);
+    const ss = s % 60;
+    if (hh > 0) return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+    return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+  };
+
   const W_PROB = L("확률", "Probability");
   const W_CONF = L("신뢰도", "Confidence");
 
@@ -68,6 +77,10 @@ export function PageHome({ api, tab, setTab, t, lang }) {
   };
   const marketOpen = Boolean(vm.raw?.marketOpen ?? status?.marketOpen ?? false);
   const countdown = vm.raw?.timers?.countdown ?? status?.timers?.countdown ?? "--:--";
+
+  const scoreLocked = !!api?.statusComputed?.scoreLocked;
+  const scoreLockReason = api?.statusComputed?.scoreLockReason || "";
+  const mc = api?.statusComputed?.marketClock || null;
 
   // "a1" (Daily) <-> "a2" (Intraday)
   const view = tab ?? "a1";
@@ -168,6 +181,7 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       onPointerUp={onPointerUp}
       style={{ touchAction: "pan-y" }}
     >
+      <div className={scoreLocked ? "pointer-events-none" : ""}>
       {/* A-1 (Daily) */}
       {view === "a1" ? (
         <div className="grid gap-3">
@@ -210,7 +224,7 @@ export function PageHome({ api, tab, setTab, t, lang }) {
           </Card>
         </div>
       ) : (
-        // A-2 (Intraday) — always accessible (no lock overlay)
+        // A-2 (Intraday)
         <div className="grid gap-3">
 
           <Card title={tSafe(t, "a2.factors", L("요인 (6D)", "Factors (6D)"))} subtitle={tSafe(t, "a2.factorsSub", L("z-score + raw", "z-score + raw snapshot"))}>
@@ -251,6 +265,35 @@ export function PageHome({ api, tab, setTab, t, lang }) {
               </div>
 	            ) : null}
           </Card>
+        </div>
+      )}
+
+      </div>
+
+      {scoreLocked && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="absolute inset-0 bg-black/45" />
+          <div className="relative px-5 py-4 rounded-2xl bg-black/70 border border-white/10 text-white max-w-[90%]">
+            {scoreLockReason === "PREMARKET" ? (
+              <>
+                <div className="text-sm opacity-80">{L("프리장", "Premarket")}</div>
+                <div className="text-2xl font-semibold mt-1">{L("개장까지 ", "Opens in ")}{fmtMMSS(mc?.secondsToOpen || 0)}</div>
+                <div className="text-xs opacity-70 mt-2">{L("개장 전에는 스코어/시나리오를 잠시 비활성화합니다.", "Scores are hidden before the open.")}</div>
+              </>
+            ) : scoreLockReason === "OPEN_WARMUP" ? (
+              <>
+                <div className="text-sm opacity-80">{L("데이터 준비중", "Warming up")}</div>
+                <div className="text-2xl font-semibold mt-1">{L("개장 후 ", "Since open: ")}{fmtMMSS(mc?.secondsSinceOpen || 0)}</div>
+                <div className="text-xs opacity-70 mt-2">{L("첫 스냅샷이 반영되면 자동으로 활성화됩니다.", "Will unlock after the first snapshot.")}</div>
+              </>
+            ) : (
+              <>
+                <div className="text-sm opacity-80">{L("데이터 상태", "Data status")}</div>
+                <div className="text-2xl font-semibold mt-1">{L("잠시 비활성화", "Temporarily locked")}</div>
+                <div className="text-xs opacity-70 mt-2">{L("네트워크/배포 상태를 확인하세요.", "Check network/deploy status.")}</div>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>

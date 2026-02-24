@@ -184,12 +184,12 @@ function getTZOffsetMinutes(date, timeZone) {
   return (utcDate - tzDate) / 60000;
 }
 
-function makeDateInTimeZone({ year, month, day, hour, minute, timeZone }) {
-  const guessUtc = new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0));
+function makeDateInTimeZone({ year, month, day, hour, minute, second = 0, timeZone }) {
+  const guessUtc = new Date(Date.UTC(year, month - 1, day, hour, minute, second, 0));
   const off1 = getTZOffsetMinutes(guessUtc, timeZone);
-  const pass1 = new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0) + off1 * 60_000);
+  const pass1 = new Date(Date.UTC(year, month - 1, day, hour, minute, second, 0) + off1 * 60_000);
   const off2 = getTZOffsetMinutes(pass1, timeZone);
-  return new Date(Date.UTC(year, month - 1, day, hour, minute, 0, 0) + off2 * 60_000);
+  return new Date(Date.UTC(year, month - 1, day, hour, minute, second, 0) + off2 * 60_000);
 }
 
 function getETParts(date) {
@@ -371,11 +371,23 @@ function computeMarketClock(now) {
   let nextKind = "OPEN";
   let secondsToNext = null;
 
-  const etNow = makeDateInTimeZone({ year: y, month: M, day: D, hour: p.hour, minute: p.minute, timeZone: "America/New_York" });
+  const etNow = makeDateInTimeZone({
+    year: y,
+    month: M,
+    day: D,
+    hour: p.hour,
+    minute: p.minute,
+    second: Number.isFinite(p.second) ? p.second : 0,
+    timeZone: "America/New_York",
+  });
+
+  // Track elapsed time since open with seconds precision (useful for "data 준비중" window)
+  const openET_forElapsed = makeDateInTimeZone({ year: y, month: M, day: D, hour: 9, minute: 30, second: 0, timeZone: "America/New_York" });
+  const secondsSinceOpen = Math.max(0, Math.floor((etNow.getTime() - openET_forElapsed.getTime()) / 1000));
 
   if (phase === "OPEN") {
     // time to today's close
-    const closeET = makeDateInTimeZone({ year: y, month: M, day: D, hour: 16, minute: 0, timeZone: "America/New_York" });
+    const closeET = makeDateInTimeZone({ year: y, month: M, day: D, hour: 16, minute: 0, second: 0, timeZone: "America/New_York" });
     secondsToClose = Math.max(0, Math.floor((closeET.getTime() - etNow.getTime()) / 1000));
     nextKind = "CLOSE";
     secondsToNext = secondsToClose;
@@ -388,7 +400,7 @@ function computeMarketClock(now) {
     }
     // build target 09:30 ET
     const [ty, tm, td] = targetKey.split("-").map((x) => Number(x));
-    const openET = makeDateInTimeZone({ year: ty, month: tm, day: td, hour: 9, minute: 30, timeZone: "America/New_York" });
+    const openET = makeDateInTimeZone({ year: ty, month: tm, day: td, hour: 9, minute: 30, second: 0, timeZone: "America/New_York" });
 
     secondsToOpen = Math.max(0, Math.floor((openET.getTime() - etNow.getTime()) / 1000));
     nextKind = "OPEN";
@@ -407,6 +419,7 @@ function computeMarketClock(now) {
     nextKind, // "OPEN" | "CLOSE"
     secondsToNext,
     minutesSinceOpen,
+    secondsSinceOpen,
   };
 }
 
