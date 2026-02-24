@@ -962,11 +962,8 @@ try {
       : null;
     const asOfShort = asOfUTC ? `${asOfUTC}(${PRIMARY_LOOKBACK_KEY})` : null;
 
-    const topLabel = fetchedLabel
-      ? (asOfShort ? `SYNC ${fetchedLabel} · ${asOfShort}` : `SYNC ${fetchedLabel}`)
-      : asOfShort
-        ? `DATA ${asOfShort}`
-        : tonePack.label;
+    // Keep the top-right pill compact (time-only). The detailed as-of/date belongs in cards.
+    const topLabel = fetchedLabel ? `SYNC ${fetchedLabel}` : tonePack.label;
 
     // Health badge: color-only (legacy thresholds)
 // - <=10m: green

@@ -146,10 +146,8 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
   return (
     <div className="px-4 pb-6 min-h-[calc(100dvh-4rem)]" onPointerDown={onPointerDown} onPointerUp={onPointerUp} style={{ touchAction: "pan-y" }}>
       <div className="mb-3 flex items-center justify-between gap-2">
-        <div className="text-xs text-white/60">
-          {t?.("b.lookback", "Lookback") ?? "Lookback"}: {lookback.toUpperCase()}
-          {dataMissing ? ` · ${tSafe(t, "b.na", L("데이터 없음", "No data"))}` : ""}
-        </div>
+        {/* Period is already communicated by the toggle buttons; keep header clean. */}
+        <div className="text-xs text-white/60">{dataMissing ? tSafe(t, "b.na", L("데이터 없음", "No data")) : ""}</div>
         <div className="flex items-center gap-1">
           {[
             { k: "20d", label: "20D" },
@@ -157,7 +155,8 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
             { k: "252d", label: "252D" },
           ].map((opt) => {
             const key = opt.label; // "20D/60D/252D"
-            const available = !!dailyPeriods?.[key] || (!dailyPeriods && opt.k === "20d");
+            // Compatibility: some builds store period keys as "20D" while others store "20d".
+            const available = !!dailyPeriods?.[key] || !!dailyPeriods?.[key.toLowerCase()] || (!dailyPeriods && opt.k === "20d");
             const label = available ? opt.label : tSafe(t, "period.btn.pending", L(`${opt.label} (준비중)`, `${opt.label} (pending)`));
             return (
               <button
@@ -187,7 +186,7 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
 
             <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-white/70">
               <div className="tabular-nums">
-                {tSafe(t, "score.regime", L("레짐", "Regime"))}: {String(periodDaily?.regime7 ?? "--")} ({lbKey})
+                {tSafe(t, "score.regime", L("레짐", "Regime"))}: {String(periodDaily?.regime7 ?? "--")}
               </div>
               <div className="tabular-nums">
                 {tSafe(t, "score.titleTop", L("점수", "Score"))}: {Number.isFinite(periodDaily?.score) ? Math.round(periodDaily.score) : "--"} · {tSafe(t, "score.reliability", L("신뢰도", "Reliability"))}: {Number.isFinite(periodDaily?.Cfinal) ? Math.round(periodDaily.Cfinal) : "--"}
