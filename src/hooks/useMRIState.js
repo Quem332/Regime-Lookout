@@ -132,6 +132,12 @@ function num(x, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+// zero-pad for timestamps (prevents runtime ReferenceError in production bundles)
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+
 // Event calendar: { "events":[{"date":"YYYY-MM-DD","time":"HH:MM","name":"CPI"}] }
 function parseCalendar(cal) {
   const events = Array.isArray(cal?.events) ? cal.events : [];
