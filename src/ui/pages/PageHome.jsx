@@ -181,11 +181,11 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       const dTop = Number.isFinite(daily?.topK) ? Number(daily.topK) : null;
       const iTop = intradayTopK != null ? intradayTopK : null;
       if (dTop != null && iTop != null && dTop !== iTop) {
-        const msgKo = `일봉 #${dTop} 우세인데 장중은 #${iTop}로 이동 신호 (일치도 ${Math.round(consistency * 100)}%)`;
-        const msgEn = `Daily #${dTop} leads but intraday shifts to #${iTop} (consistency ${Math.round(consistency * 100)}%)`;
+        const msgKo = `일봉 #${dTop} ↔ 장중 #${iTop} (일치도 ${Math.round(consistency * 100)}%)`;
+        const msgEn = `Daily #${dTop} ↔ Intraday #${iTop} (consistency ${Math.round(consistency * 100)}%)`;
         base.unshift({
           level: consistency < 0.15 ? "red" : "yellow",
-          label: L("⚠️ 장중-일봉 불일치", "⚠️ Intraday diverging"),
+          label: L("⚠️ 장중 괴리", "⚠️ Intraday drift"),
           msg: L(msgKo, msgEn),
         });
       }

@@ -468,19 +468,16 @@ export function useMRIState() {
     const latencyMin = meta?.latencyMin ?? meta?.latencyMinutes ?? meta?.latency ?? null;
 const healthLevel = meta?.dataHealth?.level ?? meta?.dataHealthLevel ?? null;
 
-// Freshness: do NOT use end-of-day latency as "staleness".
-// Use actual update timestamp (fetchedAt) when available.
-const fetchedAtStr = meta?.fetchedAt ?? meta?.fetched_at ?? null;
-const fetchedAtDate = fetchedAtStr ? toDateSafe(fetchedAtStr) : null;
-const ageMinSinceFetch = fetchedAtDate ? (Date.now() - fetchedAtDate.getTime()) / 60000 : null;
+const healthLevel = meta?.dataHealth?.level ?? meta?.dataHealthLevel ?? null;
 
-// Consider data fresh if fetched within 2 hours. If unknown, don't penalize.
-const freshOk = typeof ageMinSinceFetch === "number" && Number.isFinite(ageMinSinceFetch) ? ageMinSinceFetch <= 120 : true;
+// Freshness (project policy): updates are expected every ~30 minutes.
+// Treat latencyMin > 30 as stale. If unknown, don't penalize.
+const freshOk = (latencyMin == null || !Number.isFinite(latencyMin)) ? true : latencyMin <= 30;
 
-// Data considered OK if fresh and not explicitly marked bad.
 const dataOk = freshOk;
 const dataOkFinal =
   dataOk && !["BAD", "DOWN", "ERROR"].includes(String(healthLevel ?? "").toUpperCase());
+
     const corrAvgDaily = intraday?.corrAvg ?? meta?.intraday?.corrAvg ?? upperTriangleAvgCorrMock();
 
 const corrSurgeDaily = Boolean(intraday?.corrSurge ?? meta?.intraday?.corrSurge ?? false);
@@ -745,9 +742,9 @@ if (legacy) {
     // Fetch latest.json (schema v2.3) as the canonical payload for A-pages (Score/Home/Intraday).
     // Even in split mode (daily_latest + intraday_latest), we still rely on latest.json for featuresZ.
     const latestInfo = await fetchJson(rawUrl("latest.json"), { timeoutMs: 15000 });
-    const latest = latestInfo?.data ?? null;
+    const latestJson = latestInfo?.data ?? null;
     sources.latest = {
-      ok: !!latest,
+      ok: !!latestJson,
       url: latestInfo?.url ?? rawUrl("latest.json"),
       errors: latestInfo?.errors ?? [],
     };
@@ -764,11 +761,11 @@ logger.info("data.fetch_summary", {
   legacyUrl: sources.legacy.url,
 });
 
-const raw = (latest)
+const raw = (latestJson)
   ? {
-      ...latest,
+      ...latestJson,
       _sources: {
-        ...(latest?._sources || {}),
+        ...(latestJson?._sources || {}),
         daily: !!daily,
         intraday: !!intraday,
         latestUrl: sources.latest.url,
