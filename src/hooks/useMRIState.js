@@ -29,6 +29,10 @@ import { idbGet, idbSet } from "../storage/idb";
 const APP_BASE = import.meta.env.BASE_URL ?? "/";
 const ABS_BASE = new URL(APP_BASE, document.baseURI).toString();
 
+// Primary lookback window used for the main (A/Score) interpretation.
+// (Other windows still exist under daily.periods for comparison pages.)
+const PRIMARY_LOOKBACK_KEY = "60D";
+
 // Prefer fetching data from the dedicated `data` branch (raw.githubusercontent.com)
 // so GitHub Pages deploy does NOT rebuild on every 5-min data refresh.
 const DEFAULT_DATA_REPO = "Quem332/Regime-Lookout";
@@ -946,11 +950,17 @@ try {
       ? `${String(fetchedAtDate.getHours()).padStart(2, "0")}:${String(fetchedAtDate.getMinutes()).padStart(2, "0")}`
       : null;
 
-    const asOfLabel = asOfDate
-      ? `${String(asOfDate.getHours()).padStart(2, "0")}:${String(asOfDate.getMinutes()).padStart(2, "0")}`
+    // Display as a stable UTC stamp without timezone suffix.
+    const asOfUTC = asOfDate
+      ? `${asOfDate.getUTCFullYear()}-${pad2(asOfDate.getUTCMonth() + 1)}-${pad2(asOfDate.getUTCDate())}T${pad2(asOfDate.getUTCHours())}:${pad2(asOfDate.getUTCMinutes())}`
       : null;
+    const asOfShort = asOfUTC ? `${asOfUTC}(${PRIMARY_LOOKBACK_KEY})` : null;
 
-    const topLabel = fetchedLabel ? `SYNC ${fetchedLabel}` : asOfLabel ? `DATA ${asOfLabel}` : tonePack.label;
+    const topLabel = fetchedLabel
+      ? (asOfShort ? `SYNC ${fetchedLabel} · ${asOfShort}` : `SYNC ${fetchedLabel}`)
+      : asOfShort
+        ? `DATA ${asOfShort}`
+        : tonePack.label;
 
     // Health badge: color-only (legacy thresholds)
 // - <=10m: green
@@ -1011,6 +1021,7 @@ try {
         label: topLabel,
         latencyMin,
         asOf: asOfStr,
+        asOfShort,
         fetchedAt: fetchedAtStr,
       },
       health,
@@ -1034,10 +1045,13 @@ try {
     setStatus(statusComputed);
   }, [statusComputed]);
 
+  const dailyPrimary = useMemo(() => daily?.periods?.[PRIMARY_LOOKBACK_KEY] ?? daily, [daily]);
+
   return {
     // Back-compat: expose both top-level and nested "mri" so UI pages can safely read api.mri.*
-    mri: { daily, intraday, status: statusComputed, refreshLatest },
+    mri: { daily, dailyPrimary, intraday, status: statusComputed, refreshLatest },
     daily,
+    dailyPrimary,
     intraday,
     status: statusComputed,
     refreshLatest,

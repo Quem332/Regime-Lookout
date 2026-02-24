@@ -83,7 +83,8 @@ export function quadrantFromV(V) {
 
 export function buildMriViewModel({ api, t }) {
   const mri = api?.mri ?? api ?? null;
-  const daily = mri?.daily ?? null;
+  // Prefer a pre-selected primary lookback when provided by the hook.
+  const daily = mri?.dailyPrimary ?? mri?.daily ?? null;
   const intraday = mri?.intraday ?? null;
   const status = mri?.status ?? null;
 

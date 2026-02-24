@@ -242,7 +242,7 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
                 {tSafe(t, "ui.dataMissing", L("데이터가 없어 표시할 수 없습니다. (Actions에서 데이터 업데이트를 실행하세요)", "Data is missing. (Run a data update workflow in Actions)"))}
               </div>
             ) : (
-              <FactorBars V={viewModel?.V} raw={periodDaily?.inputsRaw ?? dailyRoot?.inputsRaw ?? dailyRoot?.meta?.inputsRaw ?? null} />
+              <FactorBars lang={lang} V={viewModel?.V} raw={periodDaily?.inputsRaw ?? dailyRoot?.inputsRaw ?? dailyRoot?.meta?.inputsRaw ?? null} />
             )}
           </Card>
 
