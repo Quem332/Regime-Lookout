@@ -139,3 +139,24 @@ Current focus:
 * Confidence calibration
 * GitHub Actions data update
 * UI simplification
+
+
+## Data Source & Usage Notice | 데이터 출처 및 사용 고지
+
+This project fetches market data via the public **Yahoo Finance** endpoints (commonly accessed through the `yfinance` library) and publishes derived, lightweight JSON snapshots for the app UI.
+
+- **Data Source:** Yahoo Finance (via `yfinance`)
+- **Intended Use:** personal / educational / research use
+- **No guarantees:** data may be delayed, incomplete, or inaccurate
+
+> **Important:** If you fork or deploy this project, you are responsible for complying with Yahoo Finance’s terms and any applicable local regulations.  
+> Do **not** use this repository to resell, redistribute at scale, or offer paid data/API services based on Yahoo Finance data.
+
+---
+
+## Disclaimer | 면책 조항
+
+- This software is provided **as-is** without warranty of any kind.
+- Nothing in this repository constitutes financial, investment, or trading advice.
+- Use at your own risk.
+

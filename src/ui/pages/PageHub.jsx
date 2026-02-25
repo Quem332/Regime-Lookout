@@ -13,66 +13,6 @@ function safeJson(x) {
   }
 }
 
-function summarizeIntradayPrices(intraday) {
-  try {
-    const prices = intraday?.prices ?? intraday?.intraday?.prices ?? null;
-    if (!prices || typeof prices !== "object") return null;
-
-    const ts = Array.isArray(prices.ts) ? prices.ts : null;
-    const close = prices.close && typeof prices.close === "object" ? prices.close : null;
-    if (!ts || !close || ts.length < 2) return null;
-
-    const lastTs = String(ts[ts.length - 1] ?? "");
-    const lastDay = lastTs ? lastTs.slice(0, 10) : null;
-
-    let dayStartIdx = -1;
-    if (lastDay) {
-      for (let i = 0; i < ts.length; i++) {
-        const d = String(ts[i] ?? "").slice(0, 10);
-        if (d === lastDay) {
-          dayStartIdx = i;
-          break;
-        }
-      }
-    }
-
-    const prevIdx = dayStartIdx > 0 ? dayStartIdx - 1 : -1;
-
-    const out = {
-      intervalUsed: intraday?.intervalUsed ?? intraday?.intraday?.intervalUsed ?? null,
-      asOf: intraday?.asOf ?? null,
-      lastTs,
-      sessionDate: lastDay,
-      dayStartIdx,
-      anchoredPrevClose: Boolean(prices.anchoredPrevClose),
-      symbols: {},
-    };
-
-    for (const [sym, arr] of Object.entries(close)) {
-      if (!Array.isArray(arr) || arr.length !== ts.length) continue;
-      const last = arr[arr.length - 1];
-      const prev = prevIdx >= 0 ? arr[prevIdx] : null;
-
-      const pctFromPrev =
-        typeof last === "number" && Number.isFinite(last) && typeof prev === "number" && Number.isFinite(prev) && prev !== 0
-          ? ((last / prev) - 1) * 100
-          : null;
-
-      out.symbols[sym] = {
-        n: arr.length,
-        last,
-        prevSessionClose: prev,
-        pctFromPrevSessionClose: pctFromPrev,
-      };
-    }
-
-    return out;
-  } catch {
-    return null;
-  }
-}
-
-
 async function copyToClipboard(text) {
   try {
     await navigator.clipboard.writeText(text || "");
@@ -133,7 +73,6 @@ export function PageHub({ api, t, lang, onToggleLang }) {
           }
         : null,
       intraday,
-      intradayDiag: summarizeIntradayPrices(intraday),
       ts: new Date().toISOString(),
       lang: lang ?? null,
     };
@@ -239,31 +178,6 @@ export function PageHub({ api, t, lang, onToggleLang }) {
     const text = [
       "Regime-Lookout Export",
       `lang=${lang ?? "--"}`,
-      `exportedAt=${new Date().toISOString()}`,
-      "",
-      (() => {
-        const d = exportPack?.intradayDiag ?? null;
-        const s = d?.symbols ?? null;
-        if (!s) return "";
-        const pick = (k) => {
-          const it = s?.[k];
-          if (!it) return null;
-          const pct = typeof it.pctFromPrevSessionClose === "number" ? `${it.pctFromPrevSessionClose.toFixed(2)}%` : "--";
-          const last = typeof it.last === "number" ? it.last.toFixed(2) : "--";
-          const prev = typeof it.prevSessionClose === "number" ? it.prevSessionClose.toFixed(2) : "--";
-          return `${k}: last=${last} | prevClose=${prev} | change=${pct}`;
-        };
-        const lines = [
-          "== INTRADAY PRICE CHECK (approx) ==", 
-          `sessionDate=${d.sessionDate ?? "--"} | lastTs=${d.lastTs ?? "--"} | anchored=${d.anchoredPrevClose ? "1" : "0"}`,
-          pick("GLD"),
-          pick("UUP"),
-          pick("QQQM"),
-          pick("XLP"),
-          pick("VOO"),
-        ].filter(Boolean);
-        return lines.join("\n");
-      })(),
       "",
       safeJson(exportPack),
       "",
@@ -316,6 +230,52 @@ export function PageHub({ api, t, lang, onToggleLang }) {
           </div>
           <div className="mt-2 text-xs text-white/60">
             {status?.market?.label ? `SYNC: ${status.market.label}` : ""}
+          </div>
+        </Card>
+
+        <Card title={tr("hubUi.dataTitle", "Data Source & Usage")} subtitle={tr("hubUi.dataSub", "Yahoo Finance / yfinance")}>
+          <div className="text-sm text-white/70 leading-relaxed">
+            {lang === "ko"
+              ? "이 앱은 Yahoo Finance(일반적으로 yfinance 라이브러리로 접근)에서 가져온 시세를 기반으로 가벼운 JSON 스냅샷을 생성합니다. 데이터는 지연/누락/오류가 있을 수 있으며, 재판매·대규모 재배포·유료 데이터/API 제공 용도로 사용하면 안 됩니다."
+              : "This app fetches market data via Yahoo Finance (commonly accessed through the yfinance library) and publishes lightweight JSON snapshots. Data may be delayed, incomplete, or inaccurate. Do not resell, redistribute at scale, or offer paid data/API services based on this data."}
+          </div>
+          <div className="mt-3 flex gap-2 flex-wrap">
+            <Pill data-stop-toggle="1" onClick={(e) => {
+              e.stopPropagation();
+              const title = lang === "ko" ? "데이터 출처 및 사용 고지" : "Data Source & Usage Notice";
+              const body = lang === "ko"
+                ? [
+                    "== Data Source & Usage Notice ==",
+                    "",
+                    "- Data Source: Yahoo Finance (via yfinance)",
+                    "- Intended Use: personal / educational / research",
+                    "- No guarantees: data may be delayed, incomplete, or inaccurate",
+                    "",
+                    "중요: 이 저장소를 포크/배포하는 경우, Yahoo Finance 약관 및 관련 규정을 준수할 책임은 사용자에게 있습니다.",
+                    "Yahoo Finance 데이터를 기반으로 한 재판매, 대규모 재배포, 유료 데이터/API 서비스 제공은 금지됩니다.",
+                    "",
+                    "== Disclaimer ==",
+                    "- 본 소프트웨어는 어떠한 보증 없이 '있는 그대로' 제공됩니다.",
+                    "- 투자/매매/재무 자문이 아니며, 모든 책임은 사용자에게 있습니다.",
+                  ].join("\n")
+                : [
+                    "== Data Source & Usage Notice ==",
+                    "",
+                    "- Data Source: Yahoo Finance (via yfinance)",
+                    "- Intended Use: personal / educational / research",
+                    "- No guarantees: data may be delayed, incomplete, or inaccurate",
+                    "",
+                    "Important: If you fork or deploy this project, you are responsible for complying with Yahoo Finance’s terms and any applicable regulations.",
+                    "Do not use this repository to resell, redistribute at scale, or offer paid data/API services based on Yahoo Finance data.",
+                    "",
+                    "== Disclaimer ==",
+                    "- Provided as-is without warranty of any kind.",
+                    "- Not financial/investment/trading advice. Use at your own risk.",
+                  ].join("\n");
+              openTextModal(title, body);
+            }}>
+              {lang === "ko" ? "자세히" : "View details"}
+            </Pill>
           </div>
         </Card>
 
