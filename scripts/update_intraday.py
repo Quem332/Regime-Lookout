@@ -63,14 +63,13 @@ INTRADAY_TICKERS = {
     "XLP": "XLP",
     "UUP": "UUP",
     "GLD": "GLD",
-    # Optional: these can be missing intraday depending on provider/session.
+}
+
+# Optional intraday series: may be missing or sparse on Yahoo.
+OPTIONAL_INTRADAY_TICKERS = {
     "TNX": "^TNX",
     "VIX": "^VIX",
 }
-
-# Keep intraday robust: only core ETFs are required for overlay computations.
-REQUIRED_KEYS = ["VOO", "QQQM", "XLP", "UUP", "GLD"]
-OPTIONAL_KEYS = ["TNX", "VIX"]
 
 
 def _zscore_last(series: pd.Series) -> float:
@@ -172,110 +171,52 @@ def main():
         print("[WARN] Intraday fetch failed; wrote stub intraday_latest.json (DOWN)")
         return
 
-    close = pd.DataFrame(index=df.index)
-
-    # Build required first
-    for k in REQUIRED_KEYS:
-        t = INTRADAY_TICKERS[k]
+    # Build required intraday series first (must be present and aligned).
+    close_req = pd.DataFrame(index=df.index)
+    for k, t in INTRADAY_TICKERS.items():
         if t in df.columns.get_level_values(0):
-            close[k] = df[t]["Close"]
+            close_req[k] = df[t]["Close"]
+    close_req = close_req.dropna(how="all")
+    close_req = close_req.dropna(how="any")
+    if len(close_req) < 20:
+        raise RuntimeError("Insufficient intraday bars")
 
-    # If any required is missing entirely, degrade instead of crashing the pipeline.
-    missing_required = [k for k in REQUIRED_KEYS if k not in close.columns]
-    if missing_required:
-        # Do NOT fail CI; keep previous file if present.
-        msg = f"Missing required intraday tickers: {','.join(missing_required)}"
-        os.makedirs(os.path.dirname(out_path), exist_ok=True)
-        if os.path.exists(out_path):
-            try:
-                with open(out_path, "r", encoding="utf-8") as f:
-                    prev = json.load(f)
-                prev["fetchedAt"] = now_et.isoformat()
-                prev["dataHealth"] = {"level": "DEGRADED", "source": "cache", "msg": msg[:180]}
-                with open(out_path, "w", encoding="utf-8") as f:
-                    json.dump(prev, f, ensure_ascii=False, indent=2)
-                print("[WARN] Intraday tickers missing; kept previous intraday_latest.json (DEGRADED)")
-                return
-            except Exception:
-                pass
-        stub = {
-            "schemaVersion": "2.3",
-            "asOf": now_et.isoformat(),
-            "fetchedAt": now_et.isoformat(),
-            "dataHealth": {"level": "DOWN", "source": "yfinance", "msg": msg[:180]},
-            "intraday": None,
-        }
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(stub, f, ensure_ascii=False, indent=2)
-        print("[WARN] Intraday tickers missing; wrote stub intraday_latest.json (DOWN)")
-        return
-
-    # Add optional series if available
-    for k in OPTIONAL_KEYS:
-        t = INTRADAY_TICKERS[k]
-        if t in df.columns.get_level_values(0):
-            close[k] = df[t]["Close"]
-
-    # Require complete bars only on required columns
-    close = close.dropna(how="all")
-    close = close.dropna(subset=REQUIRED_KEYS, how="any")
-    if len(close) < 20:
-        # Market closed / provider returned too few bars.
-        # Do NOT fail CI; keep previous file if present.
-        msg = f"Insufficient intraday bars (required set): {len(close)}"
-        os.makedirs(os.path.dirname(out_path), exist_ok=True)
-        if os.path.exists(out_path):
-            try:
-                with open(out_path, "r", encoding="utf-8") as f:
-                    prev = json.load(f)
-                prev["fetchedAt"] = now_et.isoformat()
-                prev["dataHealth"] = {"level": "DEGRADED", "source": "cache", "msg": msg[:180]}
-                with open(out_path, "w", encoding="utf-8") as f:
-                    json.dump(prev, f, ensure_ascii=False, indent=2)
-                print("[WARN] Intraday bars insufficient; kept previous intraday_latest.json (DEGRADED)")
-                return
-            except Exception:
-                pass
-        stub = {
-            "schemaVersion": "2.3",
-            "asOf": now_et.isoformat(),
-            "fetchedAt": now_et.isoformat(),
-            "dataHealth": {"level": "DOWN", "source": "yfinance", "msg": msg[:180]},
-            "intraday": None,
-        }
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(stub, f, ensure_ascii=False, indent=2)
-        print("[WARN] Intraday bars insufficient; wrote stub intraday_latest.json (DOWN)")
-        return
-
-    asof_ts = close.index[-1].to_pydatetime().replace(tzinfo=ET)
+    # Use required series index as the canonical timeline.
+    asof_ts = close_req.index[-1].to_pydatetime().replace(tzinfo=ET)
     latency_min = round((now_et - asof_ts).total_seconds() / 60.0, 1)
 
+    tail_idx = close_req.tail(80).index
+
+    # Optional series may be missing or sparse; align by forward-filling onto tail index.
+    close_opt = pd.DataFrame(index=tail_idx)
+    for k, t in OPTIONAL_INTRADAY_TICKERS.items():
+        try:
+            if t in df.columns.get_level_values(0):
+                s = df[t]["Close"].reindex(tail_idx).ffill()
+                if s.notna().any():
+                    close_opt[k] = s.astype(float)
+        except Exception:
+            pass
+
+    # Final close frame on tail index
+    close_tail = close_req.reindex(tail_idx)
+    if len(close_opt.columns) > 0:
+        close_tail = pd.concat([close_tail, close_opt], axis=1)
+
     # zShort: short-horizon position of risk-on ratio within last ~2 sessions
-    ratio = np.log(close["QQQM"] / close["XLP"]).tail(52)  # ~13h on 15m
+    ratio = np.log(close_req["QQQM"] / close_req["XLP"]).tail(52)  # ~13h on 15m
     z_short = _zscore_last(ratio)
 
     # corrAvg: average cross-asset correlation on returns
-    # Correlation should be computed on required set to avoid optional NaNs.
-    corr_avg = _corr_avg(close[REQUIRED_KEYS].tail(80))
+    corr_avg = _corr_avg(close_req.tail(80))
     corr_surge = bool(corr_avg >= 0.80)
 
     # Minimal prices payload for UI sparkline (last 80)
-    tail = close.tail(80)
-    ts_payload = [t.to_pydatetime().replace(tzinfo=ET).isoformat() for t in tail.index]
-    close_payload = {}
-    for k in list(tail.columns):
-        vals = []
-        ok = True
-        for x in tail[k].values:
-            # JSON cannot represent NaN/Inf
-            if x is None or (isinstance(x, float) and (np.isnan(x) or np.isinf(x))):
-                ok = False
-                break
-            vals.append(float(x))
-        if ok:
-            close_payload[k] = vals
-    prices_payload = {"ts": ts_payload, "close": close_payload}
+    tail = close_tail
+    prices_payload = {
+        "ts": [t.to_pydatetime().replace(tzinfo=ET).isoformat() for t in tail.index],
+        "close": {k: [float(x) for x in tail[k].values] for k in tail.columns},
+    }
 
     payload = {
         "schemaVersion": "2.3",
