@@ -50,7 +50,7 @@ export default function FactorBars({ V, raw, lang }) {
     {
       key: "usd_gold",
       label: L(lang, { en: "USD (UUP) ↔ Gold (GLD)", ko: "달러(UUP) ↔ 금(GLD)" }),
-      z: (v[3] ?? 0) - (v[5] ?? 0),
+      z: ((v[3] ?? 0) - (v[5] ?? 0)) * 0.5,
       rawText: r ? `UUP 20D ${fmtPct(r?.usd?.uup_20d_pct)} | GLD 20D ${fmtPct(r?.gold?.gld_20d_pct)}` : "",
     },
     {

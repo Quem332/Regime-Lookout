@@ -646,7 +646,92 @@ try {
 
 
 
-  const setIntradayFromLatest = (latest) => {
+  
+    // Inject "previous close" as an intraday anchor datapoint.
+  // We insert ONE synthetic point right before today's first bar, using the last bar
+  // from the previous session as the anchor value.
+  //
+  // Why: avoids special-casing "vs prev close" everywhere. The series naturally starts
+  // at prev close *for the current session*.
+  const anchorPrevClosePrices = (prices, latest) => {
+    try {
+      if (!prices || typeof prices !== "object") return prices;
+      const ts = Array.isArray(prices.ts) ? prices.ts : null;
+      const close = prices.close && typeof prices.close === "object" ? prices.close : null;
+      if (!ts || ts.length < 3 || !close) return prices;
+
+      // Avoid double-inserting.
+      if (prices.anchoredPrevClose) return prices;
+
+      // 1) Prefer explicit prevClose map if provided by the data pipeline.
+      let prevMap =
+        (prices.prevClose && typeof prices.prevClose === "object" ? prices.prevClose : null) ||
+        (latest?.intraday?.prevClose && typeof latest.intraday.prevClose === "object" ? latest.intraday.prevClose : null) ||
+        null;
+
+      // 2) Otherwise, derive prev close from the intraday series itself.
+      // We use the last bar of the previous session (based on date portion of ISO ts).
+      const lastDay = typeof ts[ts.length - 1] === "string" ? ts[ts.length - 1].slice(0, 10) : null;
+      if (!lastDay) return prices;
+
+      let dayStartIdx = -1;
+      for (let i = 0; i < ts.length; i++) {
+        const d = typeof ts[i] === "string" ? ts[i].slice(0, 10) : null;
+        if (d === lastDay) {
+          dayStartIdx = i;
+          break;
+        }
+      }
+
+      // If we can't find today's segment start or there is no previous session bar, bail.
+      if (dayStartIdx <= 0) return prices;
+
+      const prevIdx = dayStartIdx - 1;
+
+      if (!prevMap) {
+        const derived = {};
+        for (const [sym, arr] of Object.entries(close)) {
+          if (!Array.isArray(arr) || arr.length !== ts.length) continue;
+          const pv = arr[prevIdx];
+          if (typeof pv === "number" && Number.isFinite(pv)) derived[sym] = pv;
+        }
+        prevMap = Object.keys(derived).length ? derived : null;
+      }
+
+      if (!prevMap) return prices;
+
+      // Infer time step from first two points in today's session (fallback 15m).
+      const t0 = Date.parse(ts[dayStartIdx] || "");
+      const t1 = Date.parse(ts[dayStartIdx + 1] || "");
+      const stepMs = Number.isFinite(t0) && Number.isFinite(t1) && t1 > t0 ? t1 - t0 : 15 * 60 * 1000;
+      const anchorTs = Number.isFinite(t0) ? new Date(t0 - stepMs).toISOString() : null;
+      if (!anchorTs) return prices;
+
+      // Build anchored copies (insert at dayStartIdx).
+      const ts2 = [...ts.slice(0, dayStartIdx), anchorTs, ...ts.slice(dayStartIdx)];
+
+      const close2 = {};
+      for (const [sym, arr] of Object.entries(close)) {
+        if (!Array.isArray(arr) || arr.length !== ts.length) {
+          close2[sym] = arr;
+          continue;
+        }
+        const pv = prevMap?.[sym];
+        if (typeof pv === "number" && Number.isFinite(pv)) {
+          close2[sym] = [...arr.slice(0, dayStartIdx), pv, ...arr.slice(dayStartIdx)];
+        } else {
+          close2[sym] = arr.slice();
+        }
+      }
+
+      return { ...prices, ts: ts2, close: close2, anchoredPrevClose: true };
+    } catch {
+      return prices;
+    }
+  };
+
+
+const setIntradayFromLatest = (latest) => {
     const i = latest?.intraday || null;
     if (!i) return;
     const zShortVal = i?.zShort;
@@ -662,7 +747,7 @@ try {
       corrAvg: typeof corrAvg === "number" ? corrAvg : null,
       corrSurge: Boolean(i?.corrSurge),
       intervalUsed: i?.intervalUsed ?? null,
-      prices: i?.prices ?? null,
+      prices: anchorPrevClosePrices(i?.prices ?? null, latest),
       meta: { cached: Boolean(latest?.cached), latencyMs: latest?.latencyMs ?? null, dataHealthLevel: latest?.dataHealth?.level ?? null },
       dataHealthLevel: latest?.dataHealth?.level ?? null,
       alert,
