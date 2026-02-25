@@ -207,11 +207,20 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     });
   }, [score, Cfinal, regime7, todayProbs, todayTags, t, lang]);
   const mergedReasonTags = useMemo(() => {
-    const base = Array.isArray(scoreCopy?.reasonTags) ? [scoreCopy?.reasonTags, hasIntradayScenario, consistency, intradayTopK, daily?.topK, lang, shortTermShiftTag]);
-
-
-
-  // Scenario probabilities (supports {p,c} entries)
+    let base = [];
+    if (Array.isArray(scoreCopy?.reasonTags)) {
+      base = [
+        ...scoreCopy.reasonTags,
+        hasIntradayScenario,
+        consistency,
+        intradayTopK,
+        daily?.topK,
+        lang,
+        shortTermShiftTag,
+      ];
+    }
+    return base.filter(Boolean);
+  }, [scoreCopy, hasIntradayScenario, consistency, intradayTopK, daily?.topK, lang, shortTermShiftTag]);
   const probs = todayProbs;
   const probList = useMemo(() => {
     return Object.entries(probs)
