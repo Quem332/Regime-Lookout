@@ -425,10 +425,29 @@ def main():
         for key in periods_payload.keys():
             periods_payload[key]["daily"] = compute_today_pack(periods_payload[key]["featuresZ"])
 
+
+        # Minimal price snapshot for UI (prevClose anchor for "today move" on indices like ^TNX/^VIX)
+        prices_payload = {}
+        try:
+            for k, arr in close.items():
+                if not isinstance(arr, list) or len(arr) < 2:
+                    continue
+                last = arr[-1]
+                prev = arr[-2]
+                if not isinstance(last, (int, float)) or not isinstance(prev, (int, float)):
+                    continue
+                if not (last == last and prev == prev) or prev == 0:
+                    continue
+                ch = (last - prev) / prev
+                prices_payload[k] = {"last": float(last), "prevClose": float(prev), "changePct": float(ch)}
+        except Exception:
+            prices_payload = {}
+
         payload = {
             "schemaVersion": "2.3",
             "asOf": asof_ts.isoformat(),
             "lastTradingDay": _last_trading_day_et(now_et),
+            "prices": prices_payload,
             "featuresZ": periods_payload["252D"]["featuresZ"],
             "daily": daily_pack,
             "periods": periods_payload,

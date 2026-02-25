@@ -142,7 +142,7 @@ export function PageHome({ api, tab, setTab, t, lang }) {
 
   const shortTermShiftTag =
     topK20 != null && topK60 != null && topK20 !== topK60
-      ? (isKo ? `시나리오 변경 시그널: 20D 시나리오 ${topK20} (기본 60D=${topK60})` : `Scenario Change Signal: 20D scenario ${topK20} (base 60D=${topK60})`)
+      ? (isKo ? `ℹ️ 시나리오 변경 시그널` : `ℹ️ Scenario Change Signal`)
       : null;
 
 
@@ -207,20 +207,16 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     });
   }, [score, Cfinal, regime7, todayProbs, todayTags, t, lang]);
   const mergedReasonTags = useMemo(() => {
-    let base = [];
-    if (Array.isArray(scoreCopy?.reasonTags)) {
-      base = [
-        ...scoreCopy.reasonTags,
-        hasIntradayScenario,
-        consistency,
-        intradayTopK,
-        daily?.topK,
-        lang,
-        shortTermShiftTag,
-      ];
+    const base = Array.isArray(scoreCopy?.reasonTags)
+      ? scoreCopy.reasonTags.filter((v) => typeof v === "string" && v.trim())
+      : [];
+
+    if (typeof shortTermShiftTag === "string" && shortTermShiftTag.trim()) {
+      base.unshift(shortTermShiftTag);
     }
-    return base.filter(Boolean);
-  }, [scoreCopy, hasIntradayScenario, consistency, intradayTopK, daily?.topK, lang, shortTermShiftTag]);
+
+    return base;
+  }, [scoreCopy, shortTermShiftTag]);
   const probs = todayProbs;
   const probList = useMemo(() => {
     return Object.entries(probs)
@@ -296,6 +292,14 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     const pUUP = pct("UUP");
     const pGLD = pct("GLD");
 
+    const pctDaily = (key) => {
+      const v = daily?.prices?.[key]?.changePct;
+      return typeof v === "number" && Number.isFinite(v) ? v : null;
+    };
+
+    const pTNX = pct("^TNX") ?? pct("TNX") ?? pctDaily("TNX");
+    const pVIX = pct("^VIX") ?? pct("VIX") ?? pctDaily("VIX");
+
     const fmt = (p) => (p == null ? "--" : `${(p * 100).toFixed(2)}%`);
 
     return {
@@ -305,11 +309,13 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       qqqmMinusXlp: pQQQM != null && pXLP != null ? (pQQQM - pXLP) : null,
       voo: pVOO,
       uupMinusGld: pUUP != null && pGLD != null ? (pUUP - pGLD) : null,
+      tnx: pTNX,
+      vix: pVIX,
       // For tooltip/debug
-      _raw: { pQQQM, pXLP, pVOO, pUUP, pGLD, anchorIdx, lastIdx },
+      _raw: { pQQQM, pXLP, pVOO, pUUP, pGLD, pTNX, pVIX, anchorIdx, lastIdx },
       fmt,
     };
-  }, [intraday?.prices]);
+  }, [intraday?.prices, daily?.prices]);
 
   const A2Bar = ({ label, value }) => {
     const vmax = 0.03; // 3% full-scale (rough; A is allowed to be volatile)
@@ -392,7 +398,9 @@ export function PageHome({ api, tab, setTab, t, lang }) {
               <div>
                 <A2Bar label={L("XLP(방어) ↔ QQQM(성장)", "XLP(Defense) ↔ QQQM(Growth)")} value={a2Moves.qqqmMinusXlp} />
                 <A2Bar label={L("VOO(시장)", "VOO(Market)")} value={a2Moves.voo} />
+                <A2Bar label={L("^TNX(금리)", "^TNX(Rates)")} value={a2Moves.tnx} />
                 <A2Bar label={L("달러(UUP) ↔ 금(GLD)", "USD(UUP) ↔ Gold(GLD)")} value={a2Moves.uupMinusGld} />
+                <A2Bar label={L("^VIX(공포)", "^VIX(Fear)")} value={a2Moves.vix} />
                 <div className="mt-2 text-[10px] text-white/50">
                   {L("기준일", "Session")}: {a2Moves.lastDay} · {L("마지막", "Last")}: {String(a2Moves.lastTs).slice(0, 19).replace("T", " ")}
                 </div>
