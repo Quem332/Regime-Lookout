@@ -145,6 +145,26 @@ export function computeReliabilityCSpec({ dataOk, corrAvg, corrSurge = false, zS
   const fxShockMismatch = usd > 0.8 && vix < 0.2 && Math.abs(y) < 0.6;
   if (fxShockMismatch) C -= 6;
 
+  // 8) Macro ambiguity buckets (where simple factor models can misread the dominant narrative)
+  // Inflation shock (rates up + equities/flows down) vs. growth shock vs. policy headline noise.
+  // We do NOT flip regimes here; we only reduce reliability so the UI communicates uncertainty.
+  const inflationShockAmbig =
+    y < -0.4 && rates > 0.9 && usd > 0.2 && vix < 0.9;
+  if (inflationShockAmbig) C -= 8;
+
+  const growthShockAmbig =
+    y < -0.4 && rates < -0.8 && usd > 0.2 && goldFear > 0.3 && vix < 1.2;
+  if (growthShockAmbig) C -= 8;
+
+  // Policy/FX whipsaw: big USD + big rates, but equity flow signal is muted (often headline-driven, hard to interpret)
+  const policyWhipsaw = Math.abs(usd) > 0.9 && Math.abs(rates) > 0.9 && Math.abs(y) < 0.4;
+  if (policyWhipsaw) C -= 6;
+
+  // Commodity/real-yield cross-currents: gold and USD both strong without fear spike (can be CPI/real-yield story)
+  const usdGoldTogether = usd > 0.6 && goldFear > 0.6 && vix < 0.6;
+  if (usdGoldTogether) C -= 6;
+
+
 // 8) Event-like dislocation signals (indicator-only; no calendar dependency)
 //    These do NOT flip regime; they only reduce reliability because the market is "less interpretable".
 const zShortAbs = Math.abs(Number.isFinite(zShort) ? zShort : 0);
