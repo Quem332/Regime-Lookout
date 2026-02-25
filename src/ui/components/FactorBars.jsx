@@ -48,10 +48,10 @@ export default function FactorBars({ V, raw, lang }) {
       rawText: r ? `TNX 20D ${fmtPct(r?.rates?.tnx_20d_pct)} | lvl ${fmtNum(r?.levels?.TNX)}` : "",
     },
     {
-      key: "usd",
-      label: L(lang, { en: "UUP (USD: weak ↔ strong)", ko: "UUP(달러: 약 ↔ 강)" }),
-      z: v[3],
-      rawText: r ? `UUP 20D ${fmtPct(r?.usd?.uup_20d_pct)} | lvl ${fmtNum(r?.levels?.UUP)}` : "",
+      key: "usd_gold",
+      label: L(lang, { en: "USD (UUP) ↔ Gold (GLD)", ko: "달러(UUP) ↔ 금(GLD)" }),
+      z: (v[3] ?? 0) - (v[5] ?? 0),
+      rawText: r ? `UUP 20D ${fmtPct(r?.usd?.uup_20d_pct)} | GLD 20D ${fmtPct(r?.gold?.gld_20d_pct)}` : "",
     },
     {
       key: "vix",
@@ -59,12 +59,7 @@ export default function FactorBars({ V, raw, lang }) {
       z: v[4],
       rawText: r ? `VIX 5D ${fmtPct(r?.vix?.vix_5d_pct)} | lvl ${fmtNum(r?.levels?.VIX)}` : "",
     },
-    {
-      key: "goldFear",
-      label: L(lang, { en: "GLD (Hedge: weak ↔ strong)", ko: "GLD(회피: 약 ↔ 강)" }),
-      z: v[5],
-      rawText: r ? `GLD 20D ${fmtPct(r?.gold?.gld_20d_pct)} | lvl ${fmtNum(r?.levels?.GLD)}` : "",
-    },
+
   ];
 
   return (
