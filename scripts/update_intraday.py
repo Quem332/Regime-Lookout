@@ -183,7 +183,32 @@ def main():
     # If any required is missing entirely, degrade instead of crashing the pipeline.
     missing_required = [k for k in REQUIRED_KEYS if k not in close.columns]
     if missing_required:
-        raise RuntimeError(f"Missing required intraday tickers: {','.join(missing_required)}")
+        # Do NOT fail CI; keep previous file if present.
+        msg = f"Missing required intraday tickers: {','.join(missing_required)}"
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        if os.path.exists(out_path):
+            try:
+                with open(out_path, "r", encoding="utf-8") as f:
+                    prev = json.load(f)
+                prev["fetchedAt"] = now_et.isoformat()
+                prev["dataHealth"] = {"level": "DEGRADED", "source": "cache", "msg": msg[:180]}
+                with open(out_path, "w", encoding="utf-8") as f:
+                    json.dump(prev, f, ensure_ascii=False, indent=2)
+                print("[WARN] Intraday tickers missing; kept previous intraday_latest.json (DEGRADED)")
+                return
+            except Exception:
+                pass
+        stub = {
+            "schemaVersion": "2.3",
+            "asOf": now_et.isoformat(),
+            "fetchedAt": now_et.isoformat(),
+            "dataHealth": {"level": "DOWN", "source": "yfinance", "msg": msg[:180]},
+            "intraday": None,
+        }
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(stub, f, ensure_ascii=False, indent=2)
+        print("[WARN] Intraday tickers missing; wrote stub intraday_latest.json (DOWN)")
+        return
 
     # Add optional series if available
     for k in OPTIONAL_KEYS:
@@ -195,7 +220,33 @@ def main():
     close = close.dropna(how="all")
     close = close.dropna(subset=REQUIRED_KEYS, how="any")
     if len(close) < 20:
-        raise RuntimeError("Insufficient intraday bars (required set)")
+        # Market closed / provider returned too few bars.
+        # Do NOT fail CI; keep previous file if present.
+        msg = f"Insufficient intraday bars (required set): {len(close)}"
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        if os.path.exists(out_path):
+            try:
+                with open(out_path, "r", encoding="utf-8") as f:
+                    prev = json.load(f)
+                prev["fetchedAt"] = now_et.isoformat()
+                prev["dataHealth"] = {"level": "DEGRADED", "source": "cache", "msg": msg[:180]}
+                with open(out_path, "w", encoding="utf-8") as f:
+                    json.dump(prev, f, ensure_ascii=False, indent=2)
+                print("[WARN] Intraday bars insufficient; kept previous intraday_latest.json (DEGRADED)")
+                return
+            except Exception:
+                pass
+        stub = {
+            "schemaVersion": "2.3",
+            "asOf": now_et.isoformat(),
+            "fetchedAt": now_et.isoformat(),
+            "dataHealth": {"level": "DOWN", "source": "yfinance", "msg": msg[:180]},
+            "intraday": None,
+        }
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(stub, f, ensure_ascii=False, indent=2)
+        print("[WARN] Intraday bars insufficient; wrote stub intraday_latest.json (DOWN)")
+        return
 
     asof_ts = close.index[-1].to_pydatetime().replace(tzinfo=ET)
     latency_min = round((now_et - asof_ts).total_seconds() / 60.0, 1)
