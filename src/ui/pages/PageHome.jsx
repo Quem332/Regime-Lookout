@@ -341,6 +341,22 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       const sign = diff >= 0 ? "+" : "";
       return `${a.toFixed(decimals)} (${sign}${diff.toFixed(decimals)})`;
     };
+
+    // ^TNX from Yahoo is often scaled by 10 (e.g., 43.20 for 4.32%).
+    // Display as yield% plus bp change (more intuitive than % change).
+    const fmtTnxLevel = (last, prev) => {
+      const a0 = (last == null || !Number.isFinite(last)) ? null : last;
+      const b0 = (prev == null || !Number.isFinite(prev)) ? null : prev;
+      if (a0 == null) return "--";
+
+      const a = a0 > 20 ? (a0 / 10) : a0;
+      const b = b0 == null ? null : (b0 > 20 ? (b0 / 10) : b0);
+
+      if (b == null) return `${a.toFixed(2)}%`;
+      const bp = (a - b) * 100; // 1% = 100bp
+      const sign = bp >= 0 ? "+" : "";
+      return `${a.toFixed(2)}% (${sign}${bp.toFixed(1)}bp)`;
+    };
     const fmtVixLevel = (v, fallbackZero = false) => {
   const vv = (v == null || !Number.isFinite(v)) ? (fallbackZero ? 0 : null) : v;
   if (vv == null) return "--";
