@@ -466,11 +466,17 @@ export function useMRIState() {
     }
 
     const latencyMin = meta?.latencyMin ?? meta?.latencyMinutes ?? meta?.latency ?? null;
+    const fetchedAtRaw = meta?.fetchedAt ?? meta?.fetched_at ?? meta?.updatedAt ?? meta?.updated_at ?? null;
+    const fetchedAtMs = fetchedAtRaw ? Date.parse(fetchedAtRaw) : NaN;
+    // Freshness is measured by how recently the snapshot was fetched (GitHub Actions cadence),
+    // falling back to provided latencyMin when fetchedAt is unavailable.
+    const freshnessMin =
+      Number.isFinite(fetchedAtMs) ? (Date.now() - fetchedAtMs) / 60000 : latencyMin;
     const healthLevelMeta = meta?.dataHealth?.level ?? meta?.dataHealthLevel ?? null;
 
 // Data considered OK if not stale and not explicitly marked bad.
 const dataOk =
-  Number.isFinite(latencyMin) ? latencyMin <= 30 : true;
+  Number.isFinite(freshnessMin) ? freshnessMin <= 30 : true;
     const dataOkFinal =
       dataOk && !["BAD", "DOWN", "ERROR"].includes(String(healthLevelMeta ?? "").toUpperCase());
     const corrAvgDaily = intraday?.corrAvg ?? meta?.intraday?.corrAvg ?? upperTriangleAvgCorrMock();
