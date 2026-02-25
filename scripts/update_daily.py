@@ -428,20 +428,20 @@ def main():
 
         # Minimal price snapshot for UI (prevClose anchor for "today move" on indices like ^TNX/^VIX)
         prices_payload = {}
-        try:
-            for k, arr in close.items():
-                if not isinstance(arr, list) or len(arr) < 2:
-                    continue
-                last = arr[-1]
-                prev = arr[-2]
-                if not isinstance(last, (int, float)) or not isinstance(prev, (int, float)):
-                    continue
-                if not (last == last and prev == prev) or prev == 0:
-                    continue
-                ch = (last - prev) / prev
-                prices_payload[k] = {"last": float(last), "prevClose": float(prev), "changePct": float(ch)}
-        except Exception:
-            prices_payload = {}
+try:
+    # 'close' is a DataFrame of adjusted close prices, indexed by date.
+    for k in close.columns:
+        s = close[k].dropna()
+        if len(s) < 2:
+            continue
+        last = float(s.iloc[-1])
+        prev = float(s.iloc[-2])
+        if prev == 0:
+            continue
+        ch = (last - prev) / prev
+        prices_payload[k] = {"last": last, "prevClose": prev, "changePct": ch}
+except Exception:
+    prices_payload = {}
 
         payload = {
             "schemaVersion": "2.3",

@@ -331,18 +331,23 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     const pVIX = pct("^VIX") ?? pct("VIX") ?? pctDaily(["VIX", "^VIX"]);
 
     const fmtPct = (p) => (p == null ? "--" : `${(p * 100).toFixed(2)}%`);
-    const fmtLevel = (last, prev, decimals = 2) => {
-      if (last == null) return "--";
-      if (prev == null) return `${last.toFixed(decimals)}`;
-      const diff = last - prev;
+    const fmtLevel = (last, prev, decimals = 2, fallbackZero = false) => {
+      const L0 = fallbackZero ? 0 : null;
+      const a = (last == null || !Number.isFinite(last)) ? L0 : last;
+      const b = (prev == null || !Number.isFinite(prev)) ? L0 : prev;
+      if (a == null) return "--";
+      if (b == null) return `${a.toFixed(decimals)}`;
+      const diff = a - b;
       const sign = diff >= 0 ? "+" : "";
-      return `${last.toFixed(decimals)} (${sign}${diff.toFixed(decimals)})`;
+      return `${a.toFixed(decimals)} (${sign}${diff.toFixed(decimals)})`;
     };
-    const fmtVixLevel = (v) => {
-      if (v == null || !Number.isFinite(v)) return "--";
-      const label = v < 15 ? L("낮음", "Low") : v < 25 ? L("중간", "Mid") : L("높음", "High");
-      return `${v.toFixed(1)} (${label})`;
-    };
+    const fmtVixLevel = (v, fallbackZero = false) => {
+  const vv = (v == null || !Number.isFinite(v)) ? (fallbackZero ? 0 : null) : v;
+  if (vv == null) return "--";
+  const label = vv < 15 ? L("낮음", "Low") : vv < 25 ? L("중간", "Mid") : L("높음", "High");
+  const suffix = (v == null || !Number.isFinite(v)) && fallbackZero ? L("중립", "Neutral") : label;
+  return `${vv.toFixed(1)} (${suffix})`;
+};
 
     const qqqmLP = lp("QQQM", ["QQQM"]);
     const xlpLP = lp("XLP", ["XLP"]);
@@ -351,6 +356,10 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     const gldLP = lp("GLD", ["GLD"]);
     const tnxLP = lp("^TNX", ["TNX", "^TNX"]) || lp("TNX", ["TNX", "^TNX"]);
     const vixLP = lp("^VIX", ["VIX", "^VIX"]) || lp("VIX", ["VIX", "^VIX"]);
+// Prefer bp-based move for ^TNX (more intuitive than % change)
+const tnxBp = (tnxLP?.last != null && tnxLP?.prev != null) ? ((tnxLP.last - tnxLP.prev) * 10) : null; // bp
+const tnxMove = (tnxBp == null || !Number.isFinite(tnxBp)) ? null : (tnxBp / 1000); // normalize so 30bp ~= 0.03 full-scale
+
 
     return {
       lastDay,
@@ -359,15 +368,15 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       qqqmMinusXlp: pQQQM != null && pXLP != null ? (pQQQM - pXLP) : null,
       voo: pVOO,
       uupMinusGld: pUUP != null && pGLD != null ? (pUUP - pGLD) : null,
-      tnx: (pTNX == null ? 0 : pTNX),
-      vix: (pVIX == null ? 0 : pVIX),
+      tnx: (tnxMove == null ? (pTNX == null ? null : pTNX) : tnxMove),
+      vix: (pVIX == null ? null : pVIX),
       // Right-side display texts
       texts: {
         xlpQqqm: `${fmtLevel(qqqmLP?.last, qqqmLP?.prev, 2)} / ${fmtLevel(xlpLP?.last, xlpLP?.prev, 2)}`,
         voo: fmtLevel(vooLP?.last, vooLP?.prev, 2),
-        tnx: fmtLevel(tnxLP?.last, tnxLP?.prev, 2, true),
+        tnx: fmtTnxLevel(tnxLP?.last, tnxLP?.prev),
         usdGold: `${fmtLevel(uupLP?.last, uupLP?.prev, 2)} / ${fmtLevel(gldLP?.last, gldLP?.prev, 2)}`,
-        vix: fmtVixLevel(vixLP?.last, true),
+        vix: fmtVixLevel(vixLP?.last, false),
       },
       // For tooltip/debug
       _raw: { pQQQM, pXLP, pVOO, pUUP, pGLD, pTNX, pVIX, anchorIdx, lastIdx },
@@ -375,38 +384,39 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     };
   }, [intraday?.prices, daily?.prices]);
 
-  const A2Bar = ({ label, value, rightText }) => {
-    const vmax = 0.03; // 3% full-scale (A is allowed to be volatile)
-    const v = typeof value === "number" && Number.isFinite(value) ? value : 0; // default neutral
-    const mag = Math.min(1, Math.abs(v) / vmax);
-    const dir = v >= 0 ? 1 : -1;
+  const A2Bar = ({ label, value, rightText, vmax = 0.03, valueText }) => {
+  const isValid = typeof value === "number" && Number.isFinite(value);
+  const v = isValid ? value : 0;
+  const mag = Math.min(1, Math.abs(v) / vmax);
+  const dir = v >= 0 ? 1 : -1;
 
-    const pctText = `${(v * 100).toFixed(2)}%`;
+  const pctText = valueText ?? (isValid ? `${(v * 100).toFixed(2)}%` : "--");
 
-    return (
-      <div className="mb-2">
-        <div className="flex items-center justify-between text-xs text-white/70">
-          <span>{label}</span>
-          <span className="tabular-nums">{rightText ?? pctText}</span>
-        </div>
-
-        {/* Centered bar (like B-2): left=down, right=up */}
-        <div className="mt-1 h-2 rounded-full bg-white/10 overflow-hidden relative flex">
-          <div className="w-1/2 h-full flex justify-end">
-            {dir < 0 ? (
-              <div className="h-full bg-white/40" style={{ width: `${Math.round(mag * 100)}%` }} />
-            ) : null}
-          </div>
-          <div className="w-1/2 h-full flex justify-start">
-            {dir > 0 ? (
-              <div className="h-full bg-white/40" style={{ width: `${Math.round(mag * 100)}%` }} />
-            ) : null}
-          </div>
-          <div className="absolute left-1/2 top-0 h-full w-px bg-white/15" />
-        </div>
+  return (
+    <div className="mb-2">
+      <div className="flex items-center justify-between text-xs text-white/70">
+        <span>{label}</span>
+        <span className="tabular-nums">{rightText ?? pctText}</span>
       </div>
-    );
-  };
+
+      {/* Centered bar (like B-2): left=down, right=up */}
+      <div className="mt-1 h-2 rounded-full bg-white/10 overflow-hidden relative flex">
+        <div className="w-1/2 h-full flex justify-end">
+          {isValid && dir < 0 ? (
+            <div className="h-full bg-white/40" style={{ width: `${Math.round(mag * 100)}%` }} />
+          ) : null}
+        </div>
+        <div className="w-1/2 h-full flex justify-start">
+          {isValid && dir > 0 ? (
+            <div className="h-full bg-white/40" style={{ width: `${Math.round(mag * 100)}%` }} />
+          ) : null}
+        </div>
+        <div className="absolute left-1/2 top-0 h-full w-px bg-white/15" />
+      </div>
+    </div>
+  );
+};
+
 
   const a2Meta = useMemo(() => {
     if (!a2Moves?.lastTs) return { sessionET: a2Moves?.lastDay ?? "--", lastLocal: "--", lastET: "--" };
@@ -472,7 +482,6 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       ) : (
         <div>
           <Card title={tSafe(t, "a2.factors", L("요인 (당일 변동)", "Factors (Today move)"))} subtitle={tSafe(t, "a2.factorsSub", L("전일 종가 대비", "vs previous close"))}>
-            <div className="text-xs opacity-70 mb-2">{L("기준일(ET)", "Session (ET)")}: {a2Meta.sessionET} · {L("마지막(KST)", "Last (Local)")}: {a2Meta.lastLocal} · {L("마지막(ET)", "Last (ET)")}: {a2Meta.lastET}</div>
 
             {a2Moves ? (
               <div>

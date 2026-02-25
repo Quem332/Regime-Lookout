@@ -63,6 +63,9 @@ INTRADAY_TICKERS = {
     "XLP": "XLP",
     "UUP": "UUP",
     "GLD": "GLD",
+    # Optional (index intraday can be flaky; script must not fail if missing)
+    "TNX": "^TNX",
+    "VIX": "^VIX",
 }
 
 
