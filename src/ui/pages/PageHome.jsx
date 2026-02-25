@@ -365,9 +365,9 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       texts: {
         xlpQqqm: `${fmtLevel(qqqmLP?.last, qqqmLP?.prev, 2)} / ${fmtLevel(xlpLP?.last, xlpLP?.prev, 2)}`,
         voo: fmtLevel(vooLP?.last, vooLP?.prev, 2),
-        tnx: fmtLevel(tnxLP?.last, tnxLP?.prev, 2),
+        tnx: fmtLevel(tnxLP?.last, tnxLP?.prev, 2, true),
         usdGold: `${fmtLevel(uupLP?.last, uupLP?.prev, 2)} / ${fmtLevel(gldLP?.last, gldLP?.prev, 2)}`,
-        vix: fmtVixLevel(vixLP?.last),
+        vix: fmtVixLevel(vixLP?.last, true),
       },
       // For tooltip/debug
       _raw: { pQQQM, pXLP, pVOO, pUUP, pGLD, pTNX, pVIX, anchorIdx, lastIdx },
