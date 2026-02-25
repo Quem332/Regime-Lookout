@@ -309,8 +309,8 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       qqqmMinusXlp: pQQQM != null && pXLP != null ? (pQQQM - pXLP) : null,
       voo: pVOO,
       uupMinusGld: pUUP != null && pGLD != null ? (pUUP - pGLD) : null,
-      tnx: pTNX,
-      vix: pVIX,
+      tnx: (pTNX == null ? 0 : pTNX),
+      vix: (pVIX == null ? 0 : pVIX),
       // For tooltip/debug
       _raw: { pQQQM, pXLP, pVOO, pUUP, pGLD, pTNX, pVIX, anchorIdx, lastIdx },
       fmt,
@@ -318,22 +318,39 @@ export function PageHome({ api, tab, setTab, t, lang }) {
   }, [intraday?.prices, daily?.prices]);
 
   const A2Bar = ({ label, value }) => {
-    const vmax = 0.03; // 3% full-scale (rough; A is allowed to be volatile)
-    const v = typeof value === "number" && Number.isFinite(value) ? value : null;
-    const mag = v == null ? 0 : Math.min(1, Math.abs(v) / vmax);
-    const dir = v == null ? 0 : v >= 0 ? 1 : -1;
+    const vmax = 0.03; // 3% full-scale (A is allowed to be volatile)
+    const v = typeof value === "number" && Number.isFinite(value) ? value : 0; // default neutral
+    const mag = Math.min(1, Math.abs(v) / vmax);
+    const dir = v >= 0 ? 1 : -1;
+
+    const pctText = `${(v * 100).toFixed(2)}%`;
 
     return (
       <div className="mb-2">
         <div className="flex items-center justify-between text-xs text-white/70">
           <span>{label}</span>
-          <span className="tabular-nums">{v == null ? "--" : `${(v * 100).toFixed(2)}%`}</span>
+          <span className="tabular-nums">{pctText}</span>
         </div>
-        <div className="mt-1 h-2 rounded-full bg-white/10 overflow-hidden flex">
-          <div className={dir < 0 ? "ml-auto h-full rounded-full bg-white/40" : "h-full rounded-full bg-white/40"}
-            style={{ width: `${Math.round(mag * 100)}%` }}
-            title={v == null ? "" : `${(v * 100).toFixed(2)}%`}
-          />
+
+        {/* Centered bar (like B-2): left=down, right=up */}
+        <div className="mt-1 h-2 rounded-full bg-white/10 overflow-hidden relative flex">
+          <div className="w-1/2 h-full flex justify-end">
+            {dir < 0 ? (
+              <div
+                className="h-full bg-white/40"
+                style={{ width: `${Math.round(mag * 100)}%` }}
+              />
+            ) : null}
+          </div>
+          <div className="w-1/2 h-full flex justify-start">
+            {dir > 0 ? (
+              <div
+                className="h-full bg-white/40"
+                style={{ width: `${Math.round(mag * 100)}%` }}
+              />
+            ) : null}
+          </div>
+          <div className="absolute left-1/2 top-0 h-full w-px bg-white/15" />
         </div>
       </div>
     );
@@ -397,10 +414,10 @@ export function PageHome({ api, tab, setTab, t, lang }) {
             {a2Moves ? (
               <div>
                 <A2Bar label={L("XLP(방어) ↔ QQQM(성장)", "XLP(Defense) ↔ QQQM(Growth)")} value={a2Moves.qqqmMinusXlp} />
-                <A2Bar label={L("VOO(시장)", "VOO(Market)")} value={a2Moves.voo} />
-                <A2Bar label={L("^TNX(금리)", "^TNX(Rates)")} value={a2Moves.tnx} />
+                <A2Bar label={L("VOO(시장: 하락 ↔ 상승)", "VOO(Market: down ↔ up)")} value={a2Moves.voo} />
+                <A2Bar label={L("^TNX(금리: 하락 ↔ 상승)", "^TNX(Rates: down ↔ up)")} value={a2Moves.tnx} />
                 <A2Bar label={L("달러(UUP) ↔ 금(GLD)", "USD(UUP) ↔ Gold(GLD)")} value={a2Moves.uupMinusGld} />
-                <A2Bar label={L("^VIX(공포)", "^VIX(Fear)")} value={a2Moves.vix} />
+                <A2Bar label={L("^VIX(공포: 하락 ↔ 상승)", "^VIX(Fear: down ↔ up)")} value={a2Moves.vix} />
                 <div className="mt-2 text-[10px] text-white/50">
                   {L("기준일", "Session")}: {a2Moves.lastDay} · {L("마지막", "Last")}: {String(a2Moves.lastTs).slice(0, 19).replace("T", " ")}
                 </div>
