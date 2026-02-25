@@ -292,9 +292,13 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     const pUUP = pct("UUP");
     const pGLD = pct("GLD");
 
-    const pctDaily = (key) => {
-      const v = daily?.prices?.[key]?.changePct;
-      return typeof v === "number" && Number.isFinite(v) ? v : null;
+    const pctDaily = (keys) => {
+      const arr = Array.isArray(keys) ? keys : [keys];
+      for (const k of arr) {
+        const v = daily?.prices?.[k]?.changePct;
+        if (typeof v === "number" && Number.isFinite(v)) return v;
+      }
+      return null;
     };
 
     const lpDaily = (key) => {
@@ -323,8 +327,8 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       );
     };
 
-    const pTNX = pct("^TNX") ?? pct("TNX") ?? pctDaily("TNX");
-    const pVIX = pct("^VIX") ?? pct("VIX") ?? pctDaily("VIX");
+    const pTNX = pct("^TNX") ?? pct("TNX") ?? pctDaily(["TNX", "^TNX"]);
+    const pVIX = pct("^VIX") ?? pct("VIX") ?? pctDaily(["VIX", "^VIX"]);
 
     const fmtPct = (p) => (p == null ? "--" : `${(p * 100).toFixed(2)}%`);
     const fmtLevel = (last, prev, decimals = 2) => {
@@ -404,6 +408,17 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     );
   };
 
+  const a2Meta = useMemo(() => {
+    if (!a2Moves?.lastTs) return { sessionET: a2Moves?.lastDay ?? "--", lastLocal: "--", lastET: "--" };
+    const ms = Date.parse(a2Moves.lastTs);
+    if (!Number.isFinite(ms)) return { sessionET: a2Moves?.lastDay ?? "--", lastLocal: String(a2Moves.lastTs), lastET: String(a2Moves.lastTs) };
+    const d = new Date(ms);
+    const lastLocal = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(d);
+    const lastET = new Intl.DateTimeFormat(undefined, { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(d);
+    return { sessionET: a2Moves?.lastDay ?? "--", lastLocal, lastET };
+  }, [a2Moves?.lastDay, a2Moves?.lastTs]);
+
+
 
   return (
     <div
@@ -455,10 +470,10 @@ export function PageHome({ api, tab, setTab, t, lang }) {
           </Card>
         </div>
       ) : (
-        // A-2 (Intraday)
-        <div className="grid gap-3">
-
+        <div>
           <Card title={tSafe(t, "a2.factors", L("요인 (당일 변동)", "Factors (Today move)"))} subtitle={tSafe(t, "a2.factorsSub", L("전일 종가 대비", "vs previous close"))}>
+            <div className="text-xs opacity-70 mb-2">{L("기준일(ET)", "Session (ET)")}: {a2Meta.sessionET} · {L("마지막(KST)", "Last (Local)")}: {a2Meta.lastLocal} · {L("마지막(ET)", "Last (ET)")}: {a2Meta.lastET}</div>
+
             {a2Moves ? (
               <div>
                 <A2Bar label={L("XLP(방어) ↔ QQQM(성장)", "XLP(Defense) ↔ QQQM(Growth)")} value={a2Moves.qqqmMinusXlp} rightText={a2Moves?.texts?.xlpQqqm} />

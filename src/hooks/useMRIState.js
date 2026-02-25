@@ -896,6 +896,8 @@ if (legacy) {
         out.featuresZ = daily?.featuresZ ?? out.featuresZ ?? null;
         out.periods = daily?.periods ?? out.periods ?? null;
         out.daily = daily?.daily ?? out.daily ?? null;
+        // minimal price snapshot for UI (e.g., ^TNX/^VIX levels & prevClose)
+        out.prices = daily?.prices ?? out.prices ?? null;
 
         // intraday_latest.json may be either { intraday: {...} } or already the intraday object
         out.intraday = intraday?.intraday ?? intraday ?? out.intraday ?? null;
