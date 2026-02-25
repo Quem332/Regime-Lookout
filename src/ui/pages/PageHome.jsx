@@ -258,8 +258,6 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     if (!ts || ts.length < 3 || !close) return null;
 
     const lastTs = ts[ts.length - 1];
-
-    const fetchedAt = intraday?.fetchedAt ?? null;
     const lastDay = typeof lastTs === "string" ? lastTs.slice(0, 10) : null;
     if (!lastDay) return null;
 
@@ -332,23 +330,6 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     const pTNX = pct("^TNX") ?? pct("TNX") ?? pctDaily(["TNX", "^TNX"]);
     const pVIX = pct("^VIX") ?? pct("VIX") ?? pctDaily(["VIX", "^VIX"]);
 
-    const asOfIso = intraday?.asOf ?? lastTs ?? null;
-    const isWeekend = (() => {
-      if (!asOfIso) return false;
-      const d = new Date(asOfIso);
-      const day = d.getUTCDay();
-      return day === 0 || day === 6;
-    })();
-    const staleLimitMin = marketOpen ? 90 : (isWeekend ? 1440 : 360);
-    const vixStale = (() => {
-      if (!asOfIso) return true;
-      const t = Date.parse(asOfIso);
-      if (!Number.isFinite(t)) return true;
-      const mins = (Date.now() - t) / 60000;
-      return mins > staleLimitMin;
-    })();
-
-
     const fmtPct = (p) => (p == null ? "--" : `${(p * 100).toFixed(2)}%`);
     const fmtLevel = (last, prev, decimals = 2, fallbackZero = false) => {
       const L0 = fallbackZero ? 0 : null;
@@ -366,7 +347,7 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     const fmtTnxLevel = (last, prev) => {
       const a0 = (last == null || !Number.isFinite(last)) ? null : last;
       const b0 = (prev == null || !Number.isFinite(prev)) ? null : prev;
-      if (a0 == null) return "-";
+      if (a0 == null) return "0 (미수신)";
 
       const a = a0 > 20 ? (a0 / 10) : a0;
       const b = b0 == null ? null : (b0 > 20 ? (b0 / 10) : b0);
@@ -378,7 +359,7 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     };
     const fmtVixLevel = (v, fallbackZero = false) => {
   const vv = (v == null || !Number.isFinite(v)) ? (fallbackZero ? 0 : null) : v;
-  if (vv == null) return "-";
+  if (vv == null) return "0 (미수신)";
   const label = vv < 15 ? L("낮음", "Low") : vv < 25 ? L("중간", "Mid") : L("높음", "High");
   const suffix = (v == null || !Number.isFinite(v)) && fallbackZero ? L("중립", "Neutral") : label;
   return `${vv.toFixed(1)} (${suffix})`;
@@ -404,17 +385,17 @@ const tnxMove = (tnxBp == null || !Number.isFinite(tnxBp)) ? null : (tnxBp / 100
       voo: pVOO,
       uupMinusGld: pUUP != null && pGLD != null ? (pUUP - pGLD) : null,
       tnx: (tnxMove == null ? (pTNX == null ? null : pTNX) : tnxMove),
-      vix: (vixStale ? null : (pVIX == null ? null : pVIX)),
+      vix: (pVIX == null ? null : pVIX),
       // Right-side display texts
       texts: {
         xlpQqqm: `${fmtLevel(qqqmLP?.last, qqqmLP?.prev, 2)} / ${fmtLevel(xlpLP?.last, xlpLP?.prev, 2)}`,
         voo: fmtLevel(vooLP?.last, vooLP?.prev, 2),
         tnx: fmtTnxLevel(tnxLP?.last, tnxLP?.prev),
         usdGold: `${fmtLevel(uupLP?.last, uupLP?.prev, 2)} / ${fmtLevel(gldLP?.last, gldLP?.prev, 2)}`,
-        vix: (vixStale ? "-" : fmtVixLevel(vixLP?.last, false)),
+        vix: fmtVixLevel(vixLP?.last, false),
       },
       // For tooltip/debug
-      _raw: { pQQQM, pXLP, pVOO, pUUP, pGLD, pTNX, pVIX, vixStale, staleLimitMin, anchorIdx, lastIdx },
+      _raw: { pQQQM, pXLP, pVOO, pUUP, pGLD, pTNX, pVIX, anchorIdx, lastIdx },
       fmt: fmtPct,
     };
   }, [intraday?.prices, daily?.prices]);
@@ -425,7 +406,7 @@ const tnxMove = (tnxBp == null || !Number.isFinite(tnxBp)) ? null : (tnxBp / 100
   const mag = Math.min(1, Math.abs(v) / vmax);
   const dir = v >= 0 ? 1 : -1;
 
-    const pctText = valueText ?? (isValid ? `${(v * 100).toFixed(2)}%` : "-");
+  const pctText = valueText ?? (isValid ? `${(v * 100).toFixed(2)}%` : "0");
 
   return (
     <div className="mb-2">
@@ -454,15 +435,33 @@ const tnxMove = (tnxBp == null || !Number.isFinite(tnxBp)) ? null : (tnxBp / 100
 
 
   const a2Meta = useMemo(() => {
-    if (!a2Moves?.lastTs) return { sessionET: a2Moves?.lastDay ?? "--", lastLocal: "--", lastET: "--" };
-    const ms = Date.parse(a2Moves.lastTs);
-    if (!Number.isFinite(ms)) return { sessionET: a2Moves?.lastDay ?? "--", lastLocal: String(a2Moves.lastTs), lastET: String(a2Moves.lastTs) };
-    const d = new Date(ms);
-    const lastLocal = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(d);
-    const lastET = new Intl.DateTimeFormat(undefined, { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(d);
-    return { sessionET: a2Moves?.lastDay ?? "--", lastLocal, lastET };
-  }, [a2Moves?.lastDay, a2Moves?.lastTs]);
+    const sessionET = a2Moves?.lastDay ?? "--";
+    const lastTs = a2Moves?.lastTs;
+    if (!lastTs) return { sessionET, lastET: "--", lastKST: "--" };
 
+    const ms = Date.parse(lastTs);
+    if (!Number.isFinite(ms)) return { sessionET, lastET: String(lastTs), lastKST: "--" };
+
+    const d = new Date(ms);
+
+    const fmtYmdHm = (tz) => {
+      const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: tz,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      }).formatToParts(d);
+      const get = (type) => parts.find((p) => p.type === type)?.value ?? "";
+      return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}`;
+    };
+
+    const lastET = fmtYmdHm("America/New_York");
+    const lastKST = fmtYmdHm("Asia/Seoul");
+    return { sessionET, lastET, lastKST };
+  }, [a2Moves?.lastDay, a2Moves?.lastTs]);
 
 
   return (
@@ -526,7 +525,7 @@ const tnxMove = (tnxBp == null || !Number.isFinite(tnxBp)) ? null : (tnxBp / 100
                 <A2Bar label={L("달러(UUP) ↔ 금(GLD)", "USD(UUP) ↔ Gold(GLD)")} value={a2Moves.uupMinusGld} rightText={a2Moves?.texts?.usdGold} />
                 <A2Bar label={L("^VIX(공포: 하락 ↔ 상승)", "^VIX(Fear: down ↔ up)")} value={a2Moves.vix} rightText={a2Moves?.texts?.vix} />
                 <div className="mt-2 text-[10px] text-white/50">
-                  {L("기준일", "Session")}: {a2Moves.lastDay} · {L("마지막", "Last")}: {String(a2Moves.lastTs).slice(0, 19).replace("T", " ")}
+                  {a2Meta.lastET} ET<br/>{a2Meta.lastKST} KST
                 </div>
               </div>
             ) : (
