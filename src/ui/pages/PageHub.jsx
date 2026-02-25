@@ -50,29 +50,86 @@ export function PageHub({ api, t, lang, onToggleLang }) {
   const status = mri?.status ?? null;
 
   const exportPack = useMemo(() => {
-    // This is what we copy for debugging / sharing.
-    // Keep it stable and null-safe.
+    // Conservative export: do NOT include raw intraday arrays/history/raw JSON.
+    // Keep only summary fields that are safe to share.
+    const asOf =
+      daily?.asOf ??
+      status?.market?.asOf ??
+      status?.market?.fetchedAt ??
+      null;
+
+    const marketOpen = Boolean(status?.marketOpen ?? daily?.marketOpen);
+
+    const score = daily?.score ?? daily?.todayScore ?? daily?.TodayScore ?? null;
+    const confidence = daily?.Cfinal ?? daily?.confidence ?? daily?.C ?? null;
+    const scenario = daily?.regime7 ?? daily?.regime ?? daily?.Regime ?? null;
+    const tags = daily?.tags ?? null;
+
+    const factors6D = (() => {
+      // Order: x, y, rates, usd, vix, goldFear
+      const V = Array.isArray(daily?.V) ? daily.V : null;
+      if (V && V.length >= 6) {
+        const arr = V.map((x) => (Number.isFinite(Number(x)) ? Number(x) : null));
+        return {
+          x: arr[0],
+          y: arr[1],
+          rates: arr[2],
+          usd: arr[3],
+          vix: arr[4],
+          goldFear: arr[5],
+        };
+      }
+      const fz = daily?.featuresZ || daily?.features || daily?.z || null;
+      if (fz && typeof fz === "object") {
+        const n = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
+        return {
+          x: n(fz.x),
+          y: n(fz.y),
+          rates: n(fz.rates),
+          usd: n(fz.usd),
+          vix: n(fz.vix),
+          goldFear: n(fz.goldFear),
+        };
+      }
+      return { x: null, y: null, rates: null, usd: null, vix: null, goldFear: null };
+    })();
+
+    const pricesSummary = (() => {
+      const p = intraday?.prices ?? null;
+      const close = p?.close && typeof p.close === "object" ? p.close : null;
+      const prevCloseMap = p?.prevClose && typeof p.prevClose === "object" ? p.prevClose : null;
+      if (!close) return null;
+
+      const out = {};
+      for (const [sym, series] of Object.entries(close)) {
+        const arr = Array.isArray(series) ? series : null;
+        if (!arr || arr.length < 1) continue;
+
+        const last = Number.isFinite(Number(arr[arr.length - 1])) ? Number(arr[arr.length - 1]) : null;
+        const prevCloseRaw =
+          (prevCloseMap && Number.isFinite(Number(prevCloseMap[sym])) ? Number(prevCloseMap[sym]) : null) ??
+          (Number.isFinite(Number(arr[0])) ? Number(arr[0]) : null);
+
+        const changePct =
+          last != null && prevCloseRaw != null && prevCloseRaw !== 0
+            ? ((last / prevCloseRaw) - 1) * 100
+            : null;
+
+        out[sym] = {
+          last,
+          prevClose: prevCloseRaw,
+          changePct,
+        };
+      }
+      return Object.keys(out).length ? out : null;
+    })();
+
     return {
-      schema: status?.health?.schema ?? null,
-      market: status?.market ?? null,
-      health: status?.health ?? null,
-      timers: status?.timers ?? null,
-      marketOpen: Boolean(status?.marketOpen),
-      eventWindow: status?.eventWindow ?? null,
-      daily: daily
-        ? {
-            score: daily?.score ?? null,
-            Cfinal: daily?.Cfinal ?? null,
-            regime7: daily?.regime7 ?? null,
-            topK: daily?.topK ?? null,
-            probs: daily?.probs ?? null,
-            tags: daily?.tags ?? null,
-            V: daily?.V ?? null,
-            periods: daily?.periods ?? null,
-            meta: daily?.meta ?? null,
-          }
-        : null,
-      intraday,
+      date: asOf,
+      marketOpen,
+      daily: { score, confidence, scenario, tags },
+      factors6D,
+      prices: pricesSummary,
       ts: new Date().toISOString(),
       lang: lang ?? null,
     };
