@@ -63,10 +63,14 @@ INTRADAY_TICKERS = {
     "XLP": "XLP",
     "UUP": "UUP",
     "GLD": "GLD",
-    # Optional (index intraday can be flaky; script must not fail if missing)
+    # Optional: these can be missing intraday depending on provider/session.
     "TNX": "^TNX",
     "VIX": "^VIX",
 }
+
+# Keep intraday robust: only core ETFs are required for overlay computations.
+REQUIRED_KEYS = ["VOO", "QQQM", "XLP", "UUP", "GLD"]
+OPTIONAL_KEYS = ["TNX", "VIX"]
 
 
 def _zscore_last(series: pd.Series) -> float:
@@ -169,13 +173,29 @@ def main():
         return
 
     close = pd.DataFrame(index=df.index)
-    for k, t in INTRADAY_TICKERS.items():
+
+    # Build required first
+    for k in REQUIRED_KEYS:
+        t = INTRADAY_TICKERS[k]
         if t in df.columns.get_level_values(0):
             close[k] = df[t]["Close"]
+
+    # If any required is missing entirely, degrade instead of crashing the pipeline.
+    missing_required = [k for k in REQUIRED_KEYS if k not in close.columns]
+    if missing_required:
+        raise RuntimeError(f"Missing required intraday tickers: {','.join(missing_required)}")
+
+    # Add optional series if available
+    for k in OPTIONAL_KEYS:
+        t = INTRADAY_TICKERS[k]
+        if t in df.columns.get_level_values(0):
+            close[k] = df[t]["Close"]
+
+    # Require complete bars only on required columns
     close = close.dropna(how="all")
-    close = close.dropna(how="any")
+    close = close.dropna(subset=REQUIRED_KEYS, how="any")
     if len(close) < 20:
-        raise RuntimeError("Insufficient intraday bars")
+        raise RuntimeError("Insufficient intraday bars (required set)")
 
     asof_ts = close.index[-1].to_pydatetime().replace(tzinfo=ET)
     latency_min = round((now_et - asof_ts).total_seconds() / 60.0, 1)
@@ -185,15 +205,26 @@ def main():
     z_short = _zscore_last(ratio)
 
     # corrAvg: average cross-asset correlation on returns
-    corr_avg = _corr_avg(close.tail(80))
+    # Correlation should be computed on required set to avoid optional NaNs.
+    corr_avg = _corr_avg(close[REQUIRED_KEYS].tail(80))
     corr_surge = bool(corr_avg >= 0.80)
 
     # Minimal prices payload for UI sparkline (last 80)
     tail = close.tail(80)
-    prices_payload = {
-        "ts": [t.to_pydatetime().replace(tzinfo=ET).isoformat() for t in tail.index],
-        "close": {k: [float(x) for x in tail[k].values] for k in tail.columns},
-    }
+    ts_payload = [t.to_pydatetime().replace(tzinfo=ET).isoformat() for t in tail.index]
+    close_payload = {}
+    for k in list(tail.columns):
+        vals = []
+        ok = True
+        for x in tail[k].values:
+            # JSON cannot represent NaN/Inf
+            if x is None or (isinstance(x, float) and (np.isnan(x) or np.isinf(x))):
+                ok = False
+                break
+            vals.append(float(x))
+        if ok:
+            close_payload[k] = vals
+    prices_payload = {"ts": ts_payload, "close": close_payload}
 
     payload = {
         "schemaVersion": "2.3",
