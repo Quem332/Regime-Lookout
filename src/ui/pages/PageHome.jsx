@@ -259,6 +259,11 @@ export function PageHome({ api, tab, setTab, t, lang }) {
 
     const lastTs = ts[ts.length - 1];
     const lastDay = typeof lastTs === "string" ? lastTs.slice(0, 10) : null;
+    const ageMin = (() => {
+      const ms = Date.parse(lastTs);
+      if (!Number.isFinite(ms)) return null;
+      return (Date.now() - ms) / 60000;
+    })();
     if (!lastDay) return null;
 
     // Anchor = earliest timestamp within the lastDay segment (after our prev-close anchor injection).
@@ -347,7 +352,7 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     const fmtTnxLevel = (last, prev) => {
       const a0 = (last == null || !Number.isFinite(last)) ? null : last;
       const b0 = (prev == null || !Number.isFinite(prev)) ? null : prev;
-      if (a0 == null) return "0 (미수신)";
+      if (a0 == null) return "-";
 
       const a = a0 > 20 ? (a0 / 10) : a0;
       const b = b0 == null ? null : (b0 > 20 ? (b0 / 10) : b0);
@@ -357,13 +362,15 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       const sign = bp >= 0 ? "+" : "";
       return `${a.toFixed(2)}% (${sign}${bp.toFixed(1)}bp)`;
     };
-    const fmtVixLevel = (v, fallbackZero = false) => {
-  const vv = (v == null || !Number.isFinite(v)) ? (fallbackZero ? 0 : null) : v;
-  if (vv == null) return "0 (미수신)";
-  const label = vv < 15 ? L("낮음", "Low") : vv < 25 ? L("중간", "Mid") : L("높음", "High");
-  const suffix = (v == null || !Number.isFinite(v)) && fallbackZero ? L("중립", "Neutral") : label;
-  return `${vv.toFixed(1)} (${suffix})`;
-};
+    const fmtVixLevel = (v) => {
+      const vv = (v == null || !Number.isFinite(v)) ? null : v;
+      if (vv == null) return "-";
+      const label = vv < 15 ? L("낮음", "Low")
+        : vv < 25 ? L("중간", "Medium")
+        : vv < 35 ? L("높음", "High")
+        : L("매우 높음", "Very High");
+      return `${vv.toFixed(1)} (${label})`;
+    };
 
     const qqqmLP = lp("QQQM", ["QQQM"]);
     const xlpLP = lp("XLP", ["XLP"]);
@@ -371,7 +378,7 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     const uupLP = lp("UUP", ["UUP"]);
     const gldLP = lp("GLD", ["GLD"]);
     const tnxLP = lp("^TNX", ["TNX", "^TNX"]) || lp("TNX", ["TNX", "^TNX"]);
-    const vixLP = lp("^VIX", ["VIX", "^VIX"]) || lp("VIX", ["VIX", "^VIX"]);
+    const vixLP = lpSeries("^VIX") || lpSeries("VIX");
 // Prefer bp-based move for ^TNX (more intuitive than % change)
 const tnxBp = (tnxLP?.last != null && tnxLP?.prev != null) ? ((tnxLP.last - tnxLP.prev) * 10) : null; // bp
 const tnxMove = (tnxBp == null || !Number.isFinite(tnxBp)) ? null : (tnxBp / 1000); // normalize so 30bp ~= 0.03 full-scale
@@ -392,7 +399,7 @@ const tnxMove = (tnxBp == null || !Number.isFinite(tnxBp)) ? null : (tnxBp / 100
         voo: fmtLevel(vooLP?.last, vooLP?.prev, 2),
         tnx: fmtTnxLevel(tnxLP?.last, tnxLP?.prev),
         usdGold: `${fmtLevel(uupLP?.last, uupLP?.prev, 2)} / ${fmtLevel(gldLP?.last, gldLP?.prev, 2)}`,
-        vix: fmtVixLevel(vixLP?.last, false),
+        vix: (a2Moves?.ageMin != null && a2Moves.ageMin > 90) ? "-" : fmtVixLevel(vixLP?.last),
       },
       // For tooltip/debug
       _raw: { pQQQM, pXLP, pVOO, pUUP, pGLD, pTNX, pVIX, anchorIdx, lastIdx },
