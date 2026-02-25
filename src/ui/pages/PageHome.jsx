@@ -297,10 +297,56 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       return typeof v === "number" && Number.isFinite(v) ? v : null;
     };
 
+    const lpDaily = (key) => {
+      const p = daily?.prices?.[key];
+      if (!p || typeof p !== "object") return null;
+      const last = typeof p.last === "number" && Number.isFinite(p.last) ? p.last : null;
+      const prev = typeof p.prevClose === "number" && Number.isFinite(p.prevClose) ? p.prevClose : null;
+      if (last == null || prev == null) return null;
+      return { last, prev };
+    };
+
+    const lpSeries = (sym) => {
+      const arr = close?.[sym];
+      if (!Array.isArray(arr) || arr.length !== ts.length) return null;
+      const prev = arr[anchorIdx];
+      const last = arr[lastIdx];
+      if (typeof prev !== "number" || typeof last !== "number" || !Number.isFinite(prev) || !Number.isFinite(last)) return null;
+      return { last, prev };
+    };
+
+    const lp = (sym, dailyKeys = []) => {
+      return (
+        lpSeries(sym) ||
+        dailyKeys.map((k) => lpDaily(k)).find(Boolean) ||
+        null
+      );
+    };
+
     const pTNX = pct("^TNX") ?? pct("TNX") ?? pctDaily("TNX");
     const pVIX = pct("^VIX") ?? pct("VIX") ?? pctDaily("VIX");
 
-    const fmt = (p) => (p == null ? "--" : `${(p * 100).toFixed(2)}%`);
+    const fmtPct = (p) => (p == null ? "--" : `${(p * 100).toFixed(2)}%`);
+    const fmtLevel = (last, prev, decimals = 2) => {
+      if (last == null) return "--";
+      if (prev == null) return `${last.toFixed(decimals)}`;
+      const diff = last - prev;
+      const sign = diff >= 0 ? "+" : "";
+      return `${last.toFixed(decimals)} (${sign}${diff.toFixed(decimals)})`;
+    };
+    const fmtVixLevel = (v) => {
+      if (v == null || !Number.isFinite(v)) return "--";
+      const label = v < 15 ? L("낮음", "Low") : v < 25 ? L("중간", "Mid") : L("높음", "High");
+      return `${v.toFixed(1)} (${label})`;
+    };
+
+    const qqqmLP = lp("QQQM", ["QQQM"]);
+    const xlpLP = lp("XLP", ["XLP"]);
+    const vooLP = lp("VOO", ["VOO"]);
+    const uupLP = lp("UUP", ["UUP"]);
+    const gldLP = lp("GLD", ["GLD"]);
+    const tnxLP = lp("^TNX", ["TNX", "^TNX"]) || lp("TNX", ["TNX", "^TNX"]);
+    const vixLP = lp("^VIX", ["VIX", "^VIX"]) || lp("VIX", ["VIX", "^VIX"]);
 
     return {
       lastDay,
@@ -311,13 +357,21 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       uupMinusGld: pUUP != null && pGLD != null ? (pUUP - pGLD) : null,
       tnx: (pTNX == null ? 0 : pTNX),
       vix: (pVIX == null ? 0 : pVIX),
+      // Right-side display texts
+      texts: {
+        xlpQqqm: `${fmtLevel(qqqmLP?.last, qqqmLP?.prev, 2)} / ${fmtLevel(xlpLP?.last, xlpLP?.prev, 2)}`,
+        voo: fmtLevel(vooLP?.last, vooLP?.prev, 2),
+        tnx: fmtLevel(tnxLP?.last, tnxLP?.prev, 2),
+        usdGold: `${fmtLevel(uupLP?.last, uupLP?.prev, 2)} / ${fmtLevel(gldLP?.last, gldLP?.prev, 2)}`,
+        vix: fmtVixLevel(vixLP?.last),
+      },
       // For tooltip/debug
       _raw: { pQQQM, pXLP, pVOO, pUUP, pGLD, pTNX, pVIX, anchorIdx, lastIdx },
-      fmt,
+      fmt: fmtPct,
     };
   }, [intraday?.prices, daily?.prices]);
 
-  const A2Bar = ({ label, value }) => {
+  const A2Bar = ({ label, value, rightText }) => {
     const vmax = 0.03; // 3% full-scale (A is allowed to be volatile)
     const v = typeof value === "number" && Number.isFinite(value) ? value : 0; // default neutral
     const mag = Math.min(1, Math.abs(v) / vmax);
@@ -329,25 +383,19 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       <div className="mb-2">
         <div className="flex items-center justify-between text-xs text-white/70">
           <span>{label}</span>
-          <span className="tabular-nums">{pctText}</span>
+          <span className="tabular-nums">{rightText ?? pctText}</span>
         </div>
 
         {/* Centered bar (like B-2): left=down, right=up */}
         <div className="mt-1 h-2 rounded-full bg-white/10 overflow-hidden relative flex">
           <div className="w-1/2 h-full flex justify-end">
             {dir < 0 ? (
-              <div
-                className="h-full bg-white/40"
-                style={{ width: `${Math.round(mag * 100)}%` }}
-              />
+              <div className="h-full bg-white/40" style={{ width: `${Math.round(mag * 100)}%` }} />
             ) : null}
           </div>
           <div className="w-1/2 h-full flex justify-start">
             {dir > 0 ? (
-              <div
-                className="h-full bg-white/40"
-                style={{ width: `${Math.round(mag * 100)}%` }}
-              />
+              <div className="h-full bg-white/40" style={{ width: `${Math.round(mag * 100)}%` }} />
             ) : null}
           </div>
           <div className="absolute left-1/2 top-0 h-full w-px bg-white/15" />
@@ -413,11 +461,11 @@ export function PageHome({ api, tab, setTab, t, lang }) {
           <Card title={tSafe(t, "a2.factors", L("요인 (당일 변동)", "Factors (Today move)"))} subtitle={tSafe(t, "a2.factorsSub", L("전일 종가 대비", "vs previous close"))}>
             {a2Moves ? (
               <div>
-                <A2Bar label={L("XLP(방어) ↔ QQQM(성장)", "XLP(Defense) ↔ QQQM(Growth)")} value={a2Moves.qqqmMinusXlp} />
-                <A2Bar label={L("VOO(시장: 하락 ↔ 상승)", "VOO(Market: down ↔ up)")} value={a2Moves.voo} />
-                <A2Bar label={L("^TNX(금리: 하락 ↔ 상승)", "^TNX(Rates: down ↔ up)")} value={a2Moves.tnx} />
-                <A2Bar label={L("달러(UUP) ↔ 금(GLD)", "USD(UUP) ↔ Gold(GLD)")} value={a2Moves.uupMinusGld} />
-                <A2Bar label={L("^VIX(공포: 하락 ↔ 상승)", "^VIX(Fear: down ↔ up)")} value={a2Moves.vix} />
+                <A2Bar label={L("XLP(방어) ↔ QQQM(성장)", "XLP(Defense) ↔ QQQM(Growth)")} value={a2Moves.qqqmMinusXlp} rightText={a2Moves?.texts?.xlpQqqm} />
+                <A2Bar label={L("VOO(시장: 하락 ↔ 상승)", "VOO(Market: down ↔ up)")} value={a2Moves.voo} rightText={a2Moves?.texts?.voo} />
+                <A2Bar label={L("^TNX(금리: 하락 ↔ 상승)", "^TNX(Rates: down ↔ up)")} value={a2Moves.tnx} rightText={a2Moves?.texts?.tnx} />
+                <A2Bar label={L("달러(UUP) ↔ 금(GLD)", "USD(UUP) ↔ Gold(GLD)")} value={a2Moves.uupMinusGld} rightText={a2Moves?.texts?.usdGold} />
+                <A2Bar label={L("^VIX(공포: 하락 ↔ 상승)", "^VIX(Fear: down ↔ up)")} value={a2Moves.vix} rightText={a2Moves?.texts?.vix} />
                 <div className="mt-2 text-[10px] text-white/50">
                   {L("기준일", "Session")}: {a2Moves.lastDay} · {L("마지막", "Last")}: {String(a2Moves.lastTs).slice(0, 19).replace("T", " ")}
                 </div>
