@@ -13,6 +13,66 @@ function safeJson(x) {
   }
 }
 
+function summarizeIntradayPrices(intraday) {
+  try {
+    const prices = intraday?.prices ?? intraday?.intraday?.prices ?? null;
+    if (!prices || typeof prices !== "object") return null;
+
+    const ts = Array.isArray(prices.ts) ? prices.ts : null;
+    const close = prices.close && typeof prices.close === "object" ? prices.close : null;
+    if (!ts || !close || ts.length < 2) return null;
+
+    const lastTs = String(ts[ts.length - 1] ?? "");
+    const lastDay = lastTs ? lastTs.slice(0, 10) : null;
+
+    let dayStartIdx = -1;
+    if (lastDay) {
+      for (let i = 0; i < ts.length; i++) {
+        const d = String(ts[i] ?? "").slice(0, 10);
+        if (d === lastDay) {
+          dayStartIdx = i;
+          break;
+        }
+      }
+    }
+
+    const prevIdx = dayStartIdx > 0 ? dayStartIdx - 1 : -1;
+
+    const out = {
+      intervalUsed: intraday?.intervalUsed ?? intraday?.intraday?.intervalUsed ?? null,
+      asOf: intraday?.asOf ?? null,
+      lastTs,
+      sessionDate: lastDay,
+      dayStartIdx,
+      anchoredPrevClose: Boolean(prices.anchoredPrevClose),
+      symbols: {},
+    };
+
+    for (const [sym, arr] of Object.entries(close)) {
+      if (!Array.isArray(arr) || arr.length !== ts.length) continue;
+      const last = arr[arr.length - 1];
+      const prev = prevIdx >= 0 ? arr[prevIdx] : null;
+
+      const pctFromPrev =
+        typeof last === "number" && Number.isFinite(last) && typeof prev === "number" && Number.isFinite(prev) && prev !== 0
+          ? ((last / prev) - 1) * 100
+          : null;
+
+      out.symbols[sym] = {
+        n: arr.length,
+        last,
+        prevSessionClose: prev,
+        pctFromPrevSessionClose: pctFromPrev,
+      };
+    }
+
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+
 async function copyToClipboard(text) {
   try {
     await navigator.clipboard.writeText(text || "");
@@ -73,6 +133,7 @@ export function PageHub({ api, t, lang, onToggleLang }) {
           }
         : null,
       intraday,
+      intradayDiag: summarizeIntradayPrices(intraday),
       ts: new Date().toISOString(),
       lang: lang ?? null,
     };
@@ -178,6 +239,31 @@ export function PageHub({ api, t, lang, onToggleLang }) {
     const text = [
       "Regime-Lookout Export",
       `lang=${lang ?? "--"}`,
+      `exportedAt=${new Date().toISOString()}`,
+      "",
+      (() => {
+        const d = exportPack?.intradayDiag ?? null;
+        const s = d?.symbols ?? null;
+        if (!s) return "";
+        const pick = (k) => {
+          const it = s?.[k];
+          if (!it) return null;
+          const pct = typeof it.pctFromPrevSessionClose === "number" ? `${it.pctFromPrevSessionClose.toFixed(2)}%` : "--";
+          const last = typeof it.last === "number" ? it.last.toFixed(2) : "--";
+          const prev = typeof it.prevSessionClose === "number" ? it.prevSessionClose.toFixed(2) : "--";
+          return `${k}: last=${last} | prevClose=${prev} | change=${pct}`;
+        };
+        const lines = [
+          "== INTRADAY PRICE CHECK (approx) ==", 
+          `sessionDate=${d.sessionDate ?? "--"} | lastTs=${d.lastTs ?? "--"} | anchored=${d.anchoredPrevClose ? "1" : "0"}`,
+          pick("GLD"),
+          pick("UUP"),
+          pick("QQQM"),
+          pick("XLP"),
+          pick("VOO"),
+        ].filter(Boolean);
+        return lines.join("\n");
+      })(),
       "",
       safeJson(exportPack),
       "",
