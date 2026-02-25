@@ -74,7 +74,9 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
   const daily = vm.raw.daily;
 
   // Forward-compatible period support: accept both legacy (single daily) and new schema (daily.periods).
-  const [lookback, setLookback] = useState(() => loadLookback("20d"));
+  const [lookback, setLookback] = useState(() =>
+    loadLookback(daily?.periods ? "60d" : "20d")
+  );
   const dailyRoot = daily ?? null;
   const dailyPeriods = dailyRoot?.periods ?? null;
   const sources = api?.health?.sources ?? null;
@@ -82,7 +84,7 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
     const available = !!dailyPeriods?.[k] || (!dailyPeriods && k === "20D");
     return !available;
   });
-  const lbKey = String(lookback || "20d").toUpperCase(); // "20D"
+  const lbKey = String(lookback || (daily?.periods ? "60d" : "20d")).toUpperCase(); // "60D"
   const periodDaily = (dailyPeriods && dailyPeriods[lbKey]) ? dailyPeriods[lbKey] : (!dailyPeriods && lbKey === "20D" ? dailyRoot : null);
 
   // "Data ready" check for the currently selected period.
