@@ -2,7 +2,6 @@ import React, { useMemo, useRef } from "react";
 import { Card } from "../components/Card";
 import { Pill } from "../components/Pill";
 import { TagList } from "../components/TagList";
-import FactorBars from "../components/FactorBars";
 import { buildOneLineVerdict, buildScoreCopy } from "../../core/verdict";
 import { buildMriViewModel, tSafe, L } from "../render/mriPipeline";
 
@@ -115,6 +114,38 @@ export function PageHome({ api, tab, setTab, t, lang }) {
   const todayProbs = (todayScenario?.probs && typeof todayScenario.probs === "object") ? todayScenario.probs : (daily?.probs ?? {});
   const todayTags = Array.isArray(todayScenario?.tags) ? todayScenario.tags : (Array.isArray(daily?.tags) ? daily.tags : []);
 
+  // Short-term scenario shift signal: compare 20D vs 60D (daily packs)
+  const getPeriodPack = (p) => {
+    const periods = daily?.periods && typeof daily.periods === "object" ? daily.periods : null;
+    if (!periods) return null;
+    return periods[p] ?? periods[String(p).toUpperCase()] ?? periods[String(p).toLowerCase()] ?? null;
+  };
+
+  const getTopKFromPack = (pack) => {
+    if (!pack) return null;
+    const tk = pack?.topK;
+    if (Number.isFinite(tk)) return Number(tk);
+    const pObj = pack?.probs && typeof pack.probs === "object" ? pack.probs : null;
+    if (!pObj) return null;
+    const top = Object.entries(pObj)
+      .map(([k, v]) => [Number(k), parseProbEntry(v).p])
+      .filter(([k, p]) => Number.isFinite(k) && typeof p === "number" && Number.isFinite(p))
+      .sort((a, b) => b[1] - a[1])[0];
+    return top ? top[0] : null;
+  };
+
+  const pack20 = getPeriodPack("20D") || getPeriodPack("20d");
+  const pack60 = getPeriodPack("60D") || getPeriodPack("60d");
+
+  const topK20 = getTopKFromPack(pack20);
+  const topK60 = getTopKFromPack(pack60);
+
+  const shortTermShiftTag =
+    topK20 != null && topK60 != null && topK20 !== topK60
+      ? (isKo ? `시나리오 변경 시그널: 20D 시나리오 ${topK20} (기본 60D=${topK60})` : `Scenario Change Signal: 20D scenario ${topK20} (base 60D=${topK60})`)
+      : null;
+
+
   // Consistency: how well does today's intraday scenario align with the daily (60D) distribution?
   const intradayTopK = (() => {
     const tk = todayScenario?.topK;
@@ -176,22 +207,7 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     });
   }, [score, Cfinal, regime7, todayProbs, todayTags, t, lang]);
   const mergedReasonTags = useMemo(() => {
-    const base = Array.isArray(scoreCopy?.reasonTags) ? [...scoreCopy.reasonTags] : [];
-    if (hasIntradayScenario && typeof consistency === "number") {
-      const dTop = Number.isFinite(daily?.topK) ? Number(daily.topK) : null;
-      const iTop = intradayTopK != null ? intradayTopK : null;
-      if (dTop != null && iTop != null && dTop !== iTop) {
-        const msgKo = `일봉 #${dTop} ↔ 장중 #${iTop} (일치도 ${Math.round(consistency * 100)}%)`;
-        const msgEn = `Daily #${dTop} ↔ Intraday #${iTop} (consistency ${Math.round(consistency * 100)}%)`;
-        base.unshift({
-          level: consistency < 0.15 ? "red" : "yellow",
-          label: L("⚠️ 장중 괴리", "⚠️ Intraday drift"),
-          msg: L(msgKo, msgEn),
-        });
-      }
-    }
-    return base;
-  }, [scoreCopy?.reasonTags, hasIntradayScenario, consistency, intradayTopK, daily?.topK, lang]);
+    const base = Array.isArray(scoreCopy?.reasonTags) ? [scoreCopy?.reasonTags, hasIntradayScenario, consistency, intradayTopK, daily?.topK, lang, shortTermShiftTag]);
 
 
 
@@ -228,6 +244,86 @@ export function PageHome({ api, tab, setTab, t, lang }) {
 
     return { countdown: `${hh}:${String(mm).padStart(2, "0")}`, openAt: openAtLocal, openAtET };
   }, [marketOpen, countdown]);
+
+  // A-2: show intraday factors as "since previous close" moves (more intuitive for same-day checks)
+  const a2Moves = useMemo(() => {
+    const prices = intraday?.prices ?? null;
+    const ts = Array.isArray(prices?.ts) ? prices.ts : null;
+    const close = prices?.close && typeof prices.close === "object" ? prices.close : null;
+    if (!ts || ts.length < 3 || !close) return null;
+
+    const lastTs = ts[ts.length - 1];
+    const lastDay = typeof lastTs === "string" ? lastTs.slice(0, 10) : null;
+    if (!lastDay) return null;
+
+    // Anchor = earliest timestamp within the lastDay segment (after our prev-close anchor injection).
+    let anchorIdx = -1;
+    let anchorTime = Infinity;
+    for (let i = 0; i < ts.length; i++) {
+      const d = typeof ts[i] === "string" ? ts[i].slice(0, 10) : null;
+      if (d !== lastDay) continue;
+      const tms = Date.parse(ts[i]);
+      if (Number.isFinite(tms) && tms < anchorTime) {
+        anchorTime = tms;
+        anchorIdx = i;
+      }
+    }
+    if (anchorIdx < 0) return null;
+
+    const lastIdx = ts.length - 1;
+
+    const pct = (sym) => {
+      const arr = close?.[sym];
+      if (!Array.isArray(arr) || arr.length !== ts.length) return null;
+      const a = arr[anchorIdx];
+      const b = arr[lastIdx];
+      if (typeof a !== "number" || typeof b !== "number" || !Number.isFinite(a) || !Number.isFinite(b) || a === 0) return null;
+      return (b - a) / a; // fraction
+    };
+
+    const pQQQM = pct("QQQM");
+    const pXLP = pct("XLP");
+    const pVOO = pct("VOO");
+    const pUUP = pct("UUP");
+    const pGLD = pct("GLD");
+
+    const fmt = (p) => (p == null ? "--" : `${(p * 100).toFixed(2)}%`);
+
+    return {
+      lastDay,
+      lastTs,
+      // Pairs (fraction)
+      qqqmMinusXlp: pQQQM != null && pXLP != null ? (pQQQM - pXLP) : null,
+      voo: pVOO,
+      uupMinusGld: pUUP != null && pGLD != null ? (pUUP - pGLD) : null,
+      // For tooltip/debug
+      _raw: { pQQQM, pXLP, pVOO, pUUP, pGLD, anchorIdx, lastIdx },
+      fmt,
+    };
+  }, [intraday?.prices]);
+
+  const A2Bar = ({ label, value }) => {
+    const vmax = 0.03; // 3% full-scale (rough; A is allowed to be volatile)
+    const v = typeof value === "number" && Number.isFinite(value) ? value : null;
+    const mag = v == null ? 0 : Math.min(1, Math.abs(v) / vmax);
+    const dir = v == null ? 0 : v >= 0 ? 1 : -1;
+
+    return (
+      <div className="mb-2">
+        <div className="flex items-center justify-between text-xs text-white/70">
+          <span>{label}</span>
+          <span className="tabular-nums">{v == null ? "--" : `${(v * 100).toFixed(2)}%`}</span>
+        </div>
+        <div className="mt-1 h-2 rounded-full bg-white/10 overflow-hidden flex">
+          <div className={dir < 0 ? "ml-auto h-full rounded-full bg-white/40" : "h-full rounded-full bg-white/40"}
+            style={{ width: `${Math.round(mag * 100)}%` }}
+            title={v == null ? "" : `${(v * 100).toFixed(2)}%`}
+          />
+        </div>
+      </div>
+    );
+  };
+
 
   return (
     <div
@@ -282,8 +378,19 @@ export function PageHome({ api, tab, setTab, t, lang }) {
         // A-2 (Intraday)
         <div className="grid gap-3">
 
-          <Card title={tSafe(t, "a2.factors", L("요인 (6D)", "Factors (6D)"))} subtitle={tSafe(t, "a2.factorsSub", L("z-score + raw", "z-score + raw snapshot"))}>
-            <FactorBars lang={lang} V={daily?.V} raw={api?.mri?.inputsRaw ?? api?.mri?.daily?.inputsRaw ?? api?.mri?.meta?.inputsRaw} />
+          <Card title={tSafe(t, "a2.factors", L("요인 (당일 변동)", "Factors (Today move)"))} subtitle={tSafe(t, "a2.factorsSub", L("전일 종가 대비", "vs previous close"))}>
+            {a2Moves ? (
+              <div>
+                <A2Bar label={L("XLP(방어) ↔ QQQM(성장)", "XLP(Defense) ↔ QQQM(Growth)")} value={a2Moves.qqqmMinusXlp} />
+                <A2Bar label={L("VOO(시장)", "VOO(Market)")} value={a2Moves.voo} />
+                <A2Bar label={L("달러(UUP) ↔ 금(GLD)", "USD(UUP) ↔ Gold(GLD)")} value={a2Moves.uupMinusGld} />
+                <div className="mt-2 text-[10px] text-white/50">
+                  {L("기준일", "Session")}: {a2Moves.lastDay} · {L("마지막", "Last")}: {String(a2Moves.lastTs).slice(0, 19).replace("T", " ")}
+                </div>
+              </div>
+            ) : (
+              <div className="text-xs text-white/60">{L("장중 데이터가 없어 당일 변동을 계산할 수 없습니다.", "Intraday data not available to compute today's move.")}</div>
+            )}
           </Card>
 
           <Card title={tSafe(t, "ui.quadrant", L("포지션 맵", "Position Map"))} subtitle={tSafe(t, "quadrant.subtitle", L("성장↔방어, 유입↔유출", "Growth↔Defense, Inflow↔Outflow"))}>
