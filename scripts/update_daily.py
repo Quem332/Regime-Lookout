@@ -427,19 +427,19 @@ def main():
 
 
         # Minimal price snapshot for UI (prevClose anchor for "today move" on indices like ^TNX/^VIX)
+        # NOTE: `close` is a pandas DataFrame. Iterating via `.items()` returns Series, not lists.
         prices_payload = {}
         try:
-            # close is a DataFrame with columns like QQQM/XLP/VOO/UUP/GLD/TNX/VIX
-            for k in close.columns:
+            for k in list(close.columns):
                 s = close[k].dropna()
                 if len(s) < 2:
                     continue
                 last = float(s.iloc[-1])
                 prev = float(s.iloc[-2])
-                if prev == 0 or not (last == last and prev == prev):
+                if prev == 0:
                     continue
                 ch = (last - prev) / prev
-                prices_payload[k] = {"last": last, "prevClose": prev, "changePct": float(ch)}
+                prices_payload[str(k)] = {"last": last, "prevClose": prev, "changePct": float(ch)}
         except Exception:
             prices_payload = {}
 
