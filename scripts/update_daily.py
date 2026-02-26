@@ -321,7 +321,7 @@ def _download_daily(days_back: int = 420):
                 start=start.date().isoformat(),
                 end=(end.date() + datetime.timedelta(days=1)).isoformat(),
                 interval="1d",
-                auto_adjust=True,
+                auto_adjust=False,
                 progress=False,
                 group_by="ticker",
                 threads=False,
@@ -337,6 +337,26 @@ def _download_daily(days_back: int = 420):
                     if "Close" in df.columns and k in df.columns:
                         close[k] = df[k]["Close"]
 
+
+            # Ensure index series exist (TNX/VIX can be flaky in batch download)
+            for k, t in [("TNX", "^TNX"), ("VIX", "^VIX")]:
+                if k not in close.columns or close[k].dropna().empty:
+                    ss = _download_single_1d(t)
+                    if ss is not None:
+                        close[k] = ss
+
+            # Last resort: FRED (requires FRED_API_KEY)
+            if ("TNX" not in close.columns or close["TNX"].dropna().empty):
+                fp = _fred_last_prev("DGS10")
+                if fp is not None:
+                    last, prev = fp
+                    close.loc[close.index.max(), "TNX"] = float(last) * 10.0
+
+            if ("VIX" not in close.columns or close["VIX"].dropna().empty):
+                fp = _fred_last_prev("VIXCLS")
+                if fp is not None:
+                    last, prev = fp
+                    close.loc[close.index.max(), "VIX"] = float(last)
             close = close.dropna(how="all")
             if close is None or len(close) == 0:
                 raise RuntimeError("no close series built")
@@ -349,6 +369,69 @@ def _download_daily(days_back: int = 420):
     print("[WARN] yfinance daily download failed:", repr(last_err))
     return None
 
+
+
+
+def _download_single_1d(ticker: str, days_back: int = 30):
+    end = datetime.datetime.now(tz=ET)
+    start = end - datetime.timedelta(days=days_back)
+    try:
+        df = yf.download(
+            [ticker],
+            start=start.date().isoformat(),
+            end=(end.date() + datetime.timedelta(days=1)).isoformat(),
+            interval="1d",
+            auto_adjust=False,
+            progress=False,
+            group_by="ticker",
+            threads=False,
+        )
+        if df is None or len(df) == 0:
+            return None
+        if "Close" in df.columns:
+            s = df["Close"]
+        elif hasattr(df.columns, "get_level_values") and ticker in df.columns.get_level_values(0):
+            s = df[ticker]["Close"]
+        else:
+            return None
+        s = s.dropna()
+        if len(s) < 2:
+            return None
+        return s
+    except Exception:
+        return None
+
+
+def _fred_last_prev(series_id: str):
+    key = os.environ.get("FRED_API_KEY") or os.environ.get("FRED_KEY")
+    if not key:
+        return None
+    import urllib.parse, urllib.request
+    url = "https://api.stlouisfed.org/fred/series/observations?" + urllib.parse.urlencode({
+        "series_id": series_id,
+        "api_key": key,
+        "file_type": "json",
+        "sort_order": "desc",
+        "limit": 10,
+    })
+    try:
+        with urllib.request.urlopen(url, timeout=20) as r:
+            j = json.loads(r.read().decode("utf-8"))
+        obs = j.get("observations") or []
+        vals = []
+        for o in obs:
+            v = o.get("value")
+            try:
+                fv = float(v)
+                if fv == fv:
+                    vals.append(fv)
+            except Exception:
+                continue
+        if len(vals) < 2:
+            return None
+        return (vals[0], vals[1])
+    except Exception:
+        return None
 
 def _compute_featuresZ(close: pd.DataFrame, z_window: int) -> dict:
     # Align required columns
@@ -424,28 +507,30 @@ def main():
         daily_pack = compute_today_pack(periods_payload["252D"]["featuresZ"])
         for key in periods_payload.keys():
             periods_payload[key]["daily"] = compute_today_pack(periods_payload[key]["featuresZ"])
-
-
         # Minimal price snapshot for UI (prevClose anchor for "today move" on indices like ^TNX/^VIX)
-# close is a DataFrame; each column is a Series (NOT a list).
-prices_payload = {}
-try:
-    for k in list(close.columns):
-        s = close[k].dropna()
-        if len(s) < 2:
-            continue
-        last = s.iloc[-1]
-        prev = s.iloc[-2]
-        if not isinstance(last, (int, float)) or not isinstance(prev, (int, float)):
-            continue
-        if not (last == last and prev == prev) or prev == 0:
-            continue
-        ch = (last - prev) / prev
-        prices_payload[k] = {"last": float(last), "prevClose": float(prev), "changePct": float(ch)}
-except Exception:
-    prices_payload = {}
+        # close is a DataFrame; each column is a Series.
+        prices_payload = {}
+        try:
+            for k in list(close.columns):
+                s = close[k].dropna()
+                if len(s) < 2:
+                    continue
+                last = s.iloc[-1]
+                prev = s.iloc[-2]
+                if not isinstance(last, (int, float)) or not isinstance(prev, (int, float)):
+                    continue
+                if not (last == last and prev == prev) or prev == 0:
+                    continue
+                ch = (last - prev) / prev
+                prices_payload[k] = {"last": float(last), "prevClose": float(prev), "changePct": float(ch)}
+        except Exception:
+            prices_payload = {}
 
-payload = {}
+        # Add common Yahoo-style aliases for UI robustness
+        if "TNX" in prices_payload and "^TNX" not in prices_payload:
+            prices_payload["^TNX"] = prices_payload["TNX"]
+        if "VIX" in prices_payload and "^VIX" not in prices_payload:
+            prices_payload["^VIX"] = prices_payload["VIX"]
 
         payload = {
             "schemaVersion": "2.3",
@@ -466,6 +551,8 @@ payload = {}
 
         print("[OK] Wrote daily_latest.json", out_path)
         return
+
+
 
     except Exception as e:
         # Yahoo sometimes blocks CI or returns empty/HTML.

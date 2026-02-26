@@ -211,10 +211,6 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       ? scoreCopy.reasonTags.filter((v) => typeof v === "string" && v.trim())
       : [];
 
-    if (typeof shortTermShiftTag === "string" && shortTermShiftTag.trim()) {
-      base.unshift(shortTermShiftTag);
-    }
-
     return base;
   }, [scoreCopy, shortTermShiftTag]);
   const probs = todayProbs;
