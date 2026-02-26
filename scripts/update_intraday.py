@@ -1,191 +1,20 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 import os
 import json
-
-import urllib.request
-
-def _write_stub(path: str, reason: str) -> None:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    stub = {
-        'schema': 'intraday.v1',
-        'asOf': None,
-        'status': 'unavailable',
-        'reason': reason,
-        'generatedAt': datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace('+00:00','Z'),
-    }
-    with open(path, 'w', encoding='utf-8', newline='\n') as f:
-        json.dump(stub, f, ensure_ascii=False, separators=(',', ':'))
-
-def _try_copy_previous(path: str) -> bool:
-    # Try to reuse last good file from data branch to avoid breaking UI when yfinance is flaky.
-    repo = os.environ.get('GITHUB_REPOSITORY')  # e.g. Quem332/Regime-Lookout
-    if not repo:
-        return False
-    url = f'https://raw.githubusercontent.com/{repo}/data/public/data/intraday_latest.json'
-    try:
-        with urllib.request.urlopen(url, timeout=20) as r:
-            data = r.read()
-        if not data or len(data) < 20:
-            return False
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, 'wb') as f:
-            f.write(data)
-        print('[intraday] reused previous intraday_latest.json from data branch')
-        return True
-    except Exception as e:
-        print(f'[intraday] failed to reuse previous file: {e}')
-        return False
+import math
 import datetime
+import urllib.request
 from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
 import yfinance as yf
 
-def _download_single_1d(ticker: str, days_back: int = 30):
-    start = datetime.datetime.now(tz=ET) - datetime.timedelta(days=days_back)
-    end = datetime.datetime.now(tz=ET)
-    try:
-        df = yf.download(
-            [ticker],
-            start=start.date().isoformat(),
-            end=(end.date() + datetime.timedelta(days=1)).isoformat(),
-            interval="1d",
-            auto_adjust=False,
-            progress=False,
-            group_by="ticker",
-            threads=False,
-        )
-        if df is None or len(df) == 0:
-            return None
-        if "Close" in df.columns:
-            s = df["Close"]
-        elif hasattr(df.columns, "get_level_values") and ticker in df.columns.get_level_values(0):
-            s = df[ticker]["Close"]
-        else:
-            return None
-        s = s.dropna()
-        if len(s) < 2:
-            return None
-        last = float(s.iloc[-1])
-        prev = float(s.iloc[-2])
-        if prev == 0 or not (last == last and prev == prev):
-            return None
-        return {"last": last, "prevClose": prev, "changePct": float((last - prev) / prev)}
-    except Exception:
-        return None
-
-
-def _fred_last_prev(series_id: str):
-    key = os.environ.get("FRED_API_KEY") or os.environ.get("FRED_KEY")
-    if not key:
-        return None
-    import urllib.parse, urllib.request
-    url = "https://api.stlouisfed.org/fred/series/observations?" + urllib.parse.urlencode({
-        "series_id": series_id,
-        "api_key": key,
-        "file_type": "json",
-        "sort_order": "desc",
-        "limit": 10,
-    })
-    try:
-        with urllib.request.urlopen(url, timeout=20) as r:
-            j = json.loads(r.read().decode("utf-8"))
-        obs = j.get("observations") or []
-        vals = []
-        for o in obs:
-            v = o.get("value")
-            try:
-                fv = float(v)
-                if fv == fv:
-                    vals.append(fv)
-            except Exception:
-                continue
-        if len(vals) < 2:
-            return None
-        return (vals[0], vals[1])
-    except Exception:
-        return None
-
-
-def _build_daily_fallback(repo_root: str):
-    # Prefer daily_latest.json prices if present; else fetch 1D for TNX/VIX.
-    out = {}
-    # 1) read daily_latest.json
-    try:
-        p = os.path.join(repo_root, "public", "data", "daily_latest.json")
-        if os.path.exists(p):
-            with open(p, "r", encoding="utf-8") as f:
-                j = json.load(f)
-            prices = j.get("prices") or {}
-            for k in ["TNX", "^TNX", "VIX", "^VIX"]:
-                v = prices.get(k)
-                if isinstance(v, dict) and isinstance(v.get("last"), (int, float)) and isinstance(v.get("prevClose"), (int, float)):
-                    out[k] = {"last": float(v["last"]), "prevClose": float(v["prevClose"]), "changePct": float(v.get("changePct", 0.0))}
-    except Exception:
-        pass
-
-    # 2) yfinance 1D fallback
-    if "TNX" not in out and "^TNX" not in out:
-        v = _download_single_1d("^TNX")
-        if v: 
-            out["^TNX"] = v
-            out["TNX"] = v
-    if "VIX" not in out and "^VIX" not in out:
-        v = _download_single_1d("^VIX")
-        if v:
-            out["^VIX"] = v
-            out["VIX"] = v
-
-    # 3) last resort: FRED (requires key)
-    if ("TNX" not in out and "^TNX" not in out):
-        fp = _fred_last_prev("DGS10")
-        if fp is not None:
-            last, prev = fp
-            # DGS10 in percent; TNX usually yield*10
-            last10 = float(last) * 10.0
-            prev10 = float(prev) * 10.0
-            if prev10 != 0:
-                out["TNX"] = out["^TNX"] = {"last": last10, "prevClose": prev10, "changePct": float((last10 - prev10)/prev10)}
-    if ("VIX" not in out and "^VIX" not in out):
-        fp = _fred_last_prev("VIXCLS")
-        if fp is not None:
-            last, prev = fp
-            lastv = float(last); prevv=float(prev)
-            if prevv != 0:
-                out["VIX"] = out["^VIX"] = {"last": lastv, "prevClose": prevv, "changePct": float((lastv - prevv)/prevv)}
-
-    # 4) carry forward from previous intraday_latest.json in this repo (if exists)
-    try:
-        p = os.path.join(repo_root, "public", "data", "intraday_latest.json")
-        if os.path.exists(p):
-            with open(p, "r", encoding="utf-8") as f:
-                j = json.load(f)
-            prev = j.get("dailyFallback") or {}
-            for k in ["TNX","^TNX","VIX","^VIX"]:
-                if k not in out and isinstance(prev.get(k), dict):
-                    out[k] = prev[k]
-    except Exception:
-        pass
-
-    return out
-
-
-
-# ============================================================
-# Intraday data builder (market hours / on-demand)
-#
-# Writes: public/data/intraday_latest.json
-# - schemaVersion: 2.3
-# - asOf: ET timestamp for the most recent intraday bar
-# - intraday: { intervalUsed, prices, zShort, corrAvg, corrSurge }
-#
-# NOTE
-# - We keep this intentionally lightweight: UI/engine will decide how to
-#   combine it with Daily regime outputs.
-# ============================================================
-
 ET = ZoneInfo("America/New_York")
+UTC = datetime.timezone.utc
 
+# Required intraday tickers (must have bars)
 INTRADAY_TICKERS = {
     "VOO": "VOO",
     "QQQM": "QQQM",
@@ -194,6 +23,39 @@ INTRADAY_TICKERS = {
     "GLD": "GLD",
 }
 
+# Optional (best-effort, may be sparse/unavailable)
+OPTIONAL_1D = {
+    "TNX": "^TNX",
+    "VIX": "^VIX",
+}
+
+def _iso_utc(dt: datetime.datetime) -> str:
+    return dt.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+def _write_json(path: str, payload: dict) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+
+def _try_copy_previous(path: str) -> bool:
+    # Reuse last good file from data branch to avoid breaking UI when yfinance is flaky.
+    repo = os.environ.get("GITHUB_REPOSITORY")  # e.g. Quem332/Regime-Lookout
+    if not repo:
+        return False
+    url = f"https://raw.githubusercontent.com/{repo}/data/public/data/intraday_latest.json"
+    try:
+        with urllib.request.urlopen(url, timeout=20) as r:
+            data = r.read()
+        if not data or len(data) < 50:
+            return False
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(data)
+        print("[intraday] reused previous intraday_latest.json from data branch")
+        return True
+    except Exception as e:
+        print(f"[intraday] failed to reuse previous file: {e}")
+        return False
 
 def _zscore_last(series: pd.Series) -> float:
     s = series.dropna()
@@ -201,45 +63,35 @@ def _zscore_last(series: pd.Series) -> float:
         return 0.0
     mu = float(s.mean())
     sd = float(s.std(ddof=0))
-    if sd == 0.0 or np.isnan(sd):
+    if sd == 0.0 or (not math.isfinite(sd)):
         return 0.0
     return float((s.iloc[-1] - mu) / sd)
 
-
 def _corr_avg(prices_df: pd.DataFrame) -> float:
-    # Correlation across assets on returns
+    # average pairwise correlation on returns for the last ~1 day (intraday)
+    if prices_df is None or prices_df.empty:
+        return 0.0
     rets = prices_df.pct_change().dropna(how="any")
-    if len(rets) < 10:
+    if len(rets) < 5:
         return 0.0
-    c = rets.corr().values
-    # exclude diagonal
-    n = c.shape[0]
-    if n <= 1:
+    corr = rets.corr()
+    if corr.shape[0] < 2:
         return 0.0
-    mask = ~np.eye(n, dtype=bool)
-    vals = c[mask]
-    vals = vals[np.isfinite(vals)]
-    if len(vals) == 0:
+    vals = corr.values
+    n = vals.shape[0]
+    # upper triangle excluding diagonal
+    triu = vals[np.triu_indices(n, k=1)]
+    triu = triu[np.isfinite(triu)]
+    if triu.size == 0:
         return 0.0
-    return float(np.clip(vals.mean(), -1.0, 1.0))
+    return float(np.mean(triu))
 
-
-def main():
-    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    out_path = os.path.join(repo_root, "public", "data", "intraday_latest.json")
-
-    now_et = datetime.datetime.now(tz=ET)
-
-    # Use 15m bars, enough for 1-5 day window without hammering rate limits
-    interval = "15m"
-    period = "5d"
-
-    df = None
+def _download_intraday(symbols: list[str], interval: str, period: str) -> pd.DataFrame | None:
     last_exc = None
-    for _try in range(3):
+    for _ in range(3):
         try:
             df = yf.download(
-                list(INTRADAY_TICKERS.values()),
+                symbols,
                 period=period,
                 interval=interval,
                 auto_adjust=True,
@@ -247,83 +99,161 @@ def main():
                 group_by="ticker",
                 threads=False,
             )
-            if df is not None and len(df) > 0:
-                break
+            if df is None or len(df) == 0:
+                last_exc = RuntimeError("empty dataframe")
+                continue
+            return df
         except Exception as e:
             last_exc = e
-            df = None
-            # simple backoff to avoid hammering Yahoo
-            try:
-                import time
-                time.sleep(0.8 * (2 ** _try))
-            except Exception:
-                pass
+    print(f"[intraday] download failed: {last_exc}")
+    return None
 
-    if df is None or len(df) == 0:
-        # Yahoo sometimes blocks CI or returns non-JSON/HTML (JSONDecodeError).
-        # We MUST NOT fail the workflow: keep previous file if present, otherwise write
-        # a minimal stub so UI can show "data unavailable" instead of breaking.
-        msg = str(last_exc or "yfinance empty")[:180]
+def _extract_close(df: pd.DataFrame, symbols_by_key: dict[str, str]) -> pd.DataFrame:
+    # yfinance group_by='ticker' -> MultiIndex columns: (ticker, field)
+    closes = {}
+    for key, sym in symbols_by_key.items():
+        try:
+            if isinstance(df.columns, pd.MultiIndex):
+                s = df[(sym, "Close")]
+            else:
+                # single ticker fallback
+                if "Close" in df.columns:
+                    s = df["Close"]
+                else:
+                    s = None
+            if s is None:
+                continue
+            closes[key] = pd.to_numeric(s, errors="coerce")
+        except Exception:
+            continue
+    if not closes:
+        return pd.DataFrame()
+    out = pd.DataFrame(closes)
+    out.index = pd.to_datetime(out.index)
+    return out
 
-        stub = {
-            "schemaVersion": "2.3",
-            "asOf": now_et.isoformat(),
-            "fetchedAt": now_et.isoformat(),
-            "dataHealth": {"level": "DOWN", "source": "yfinance", "msg": msg},
-            "intraday": None,
-        }
+def _load_prev_daily_fallback_from_data_branch() -> dict:
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    if not repo:
+        return {}
+    url = f"https://raw.githubusercontent.com/{repo}/data/public/data/daily_latest.json"
+    try:
+        with urllib.request.urlopen(url, timeout=20) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        prices = data.get("prices") or (data.get("daily") or {}).get("prices") or {}
+        if not isinstance(prices, dict):
+            return {}
+        return prices
+    except Exception as e:
+        print(f"[intraday] daily_latest.json read failed: {e}")
+        return {}
 
-        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+def _fetch_1d_last_prev(sym: str) -> dict | None:
+    # Use auto_adjust=False to keep index values stable; handle multiindex/series variations.
+    try:
+        df = yf.download(
+            sym,
+            period="5d",
+            interval="1d",
+            auto_adjust=False,
+            progress=False,
+            threads=False,
+        )
+        if df is None or len(df) < 2:
+            return None
+        s = pd.to_numeric(df["Close"], errors="coerce").dropna()
+        if len(s) < 2:
+            return None
+        last = float(s.iloc[-1])
+        prev = float(s.iloc[-2])
+        if not (math.isfinite(last) and math.isfinite(prev)) or prev == 0:
+            return None
+        return {"last": last, "prevClose": prev, "changePct": (last - prev) / prev}
+    except Exception:
+        return None
 
-        if os.path.exists(out_path):
-            try:
-                with open(out_path, "r", encoding="utf-8") as f:
-                    prev = json.load(f)
-                prev["fetchedAt"] = now_et.isoformat()
-                prev["dataHealth"] = {"level": "DEGRADED", "source": "cache", "msg": msg}
-                # keep previous intraday payload as-is
-                with open(out_path, "w", encoding="utf-8") as f:
-                    json.dump(prev, f, ensure_ascii=False, indent=2)
-                print("[WARN] Intraday fetch failed; kept previous intraday_latest.json (DEGRADED)")
-                return
-            except Exception as e:
-                stub["dataHealth"] = {"level": "DOWN", "source": "cache", "msg": f"failed to read previous file: {e}"[:180]}
+def _build_daily_fallback(repo_root: str) -> dict:
+    # 1) from data-branch daily_latest.json if it has prices
+    out: dict = {}
+    prices = _load_prev_daily_fallback_from_data_branch()
+    for k in ["TNX", "^TNX"]:
+        if isinstance(prices.get(k), dict):
+            out[k] = prices[k]
+    for k in ["VIX", "^VIX"]:
+        if isinstance(prices.get(k), dict):
+            out[k] = prices[k]
 
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(stub, f, ensure_ascii=False, indent=2)
-        print("[WARN] Intraday fetch failed; wrote stub intraday_latest.json (DOWN)")
-        return
+    # 2) yfinance 1D direct if still missing
+    if not any(k in out for k in ["TNX", "^TNX"]):
+        p = _fetch_1d_last_prev("^TNX")
+        if isinstance(p, dict):
+            out["TNX"] = p
+            out["^TNX"] = p
+    if not any(k in out for k in ["VIX", "^VIX"]):
+        p = _fetch_1d_last_prev("^VIX")
+        if isinstance(p, dict):
+            out["VIX"] = p
+            out["^VIX"] = p
 
-    close = pd.DataFrame(index=df.index)
-    for k, t in INTRADAY_TICKERS.items():
-        if t in df.columns.get_level_values(0):
-            close[k] = df[t]["Close"]
-    close = close.dropna(how="all")
-    close = close.dropna(how="any")
-    if len(close) < 20:
-        raise RuntimeError("Insufficient intraday bars")
+    # 3) carry-forward from previous intraday_latest.json in working tree, if present
+    try:
+        p = os.path.join(repo_root, "public", "data", "intraday_latest.json")
+        if os.path.exists(p):
+            with open(p, "r", encoding="utf-8") as f:
+                j = json.load(f)
+            prev = (j.get("dailyFallback") or (j.get("intraday") or {}).get("dailyFallback") or {})
+            if isinstance(prev, dict):
+                for k in ["TNX","^TNX","VIX","^VIX"]:
+                    if k not in out and isinstance(prev.get(k), dict):
+                        out[k] = prev[k]
+    except Exception:
+        pass
 
-    asof_ts = close.index[-1].to_pydatetime().replace(tzinfo=ET)
-    latency_min = round((now_et - asof_ts).total_seconds() / 60.0, 1)
+    return out
 
-    # zShort: short-horizon position of risk-on ratio within last ~2 sessions
-    ratio = np.log(close["QQQM"] / close["XLP"]).tail(52)  # ~13h on 15m
-    z_short = _zscore_last(ratio)
+def main() -> None:
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    out_path = os.path.join(repo_root, "public", "data", "intraday_latest.json")
 
-    # corrAvg: average cross-asset correlation on returns
-    corr_avg = _corr_avg(close.tail(80))
-    corr_surge = bool(corr_avg >= 0.80)
+    now_et = datetime.datetime.now(ET).replace(microsecond=0)
 
-    # Minimal prices payload for UI sparkline (last 80)
-    tail = close.tail(80)
+    interval = os.environ.get("INTRADAY_INTERVAL", "15m")
+    period = os.environ.get("INTRADAY_PERIOD", "5d")
+
+    df = _download_intraday(list(INTRADAY_TICKERS.values()), interval=interval, period=period)
+    if df is None:
+        if _try_copy_previous(out_path):
+            return
+        raise SystemExit("intraday download failed")
+
+    close = _extract_close(df, INTRADAY_TICKERS)
+    # Require bars only for required symbols
+    req = close[list(INTRADAY_TICKERS.keys())].dropna(how="any")
+    if len(req) < 2:
+        # keep previous file (degraded)
+        if _try_copy_previous(out_path):
+            return
+        raise SystemExit("insufficient intraday bars")
+
+    tail = req.tail(80)
+    asof_ts = tail.index[-1]
+    latency_min = int(max(0, round((now_et - asof_ts.tz_localize(ET) if asof_ts.tzinfo is None else now_et - asof_ts.astimezone(ET)).total_seconds() / 60)))
+
+    # Basic intraday indicators
+    z_short = _zscore_last(tail["VOO"].pct_change().dropna())
+    corr_avg = _corr_avg(tail)
+    corr_surge = bool(corr_avg >= 0.8)
+
     prices_payload = {
         "ts": [t.to_pydatetime().replace(tzinfo=ET).isoformat() for t in tail.index],
         "close": {k: [float(x) for x in tail[k].values] for k in tail.columns},
     }
 
+    daily_fallback = _build_daily_fallback(repo_root)
+
     payload = {
         "schemaVersion": "2.3",
-        "asOf": asof_ts.isoformat(),
+        "asOf": asof_ts.to_pydatetime().replace(tzinfo=ET).isoformat(),
         "intervalUsed": interval,
         "latencyMin": latency_min,
         "intraday": {
@@ -332,17 +262,16 @@ def main():
             "corrSurge": corr_surge,
             "intervalUsed": interval,
             "prices": prices_payload,
+            "dailyFallback": daily_fallback,
         },
+        # backward compat
+        "dailyFallback": daily_fallback,
         "dataHealth": {"level": "OK", "source": "yfinance"},
         "fetchedAt": now_et.isoformat(),
     }
 
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
-
+    _write_json(out_path, payload)
     print("[OK] Wrote intraday_latest.json", out_path)
-
 
 if __name__ == "__main__":
     main()
