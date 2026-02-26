@@ -3,12 +3,14 @@ import { Card } from "../components/Card";
 import { Pill } from "../components/Pill";
 import { TagList } from "../components/TagList";
 import { buildOneLineVerdict, buildScoreCopy } from "../../core/verdict";
-import { buildMriViewModel, tSafe, } from "../render/mriPipeline";
+import { buildMriViewModel, tSafe } from "../render/mriPipeline";
 
 function isInteractiveTarget(el) {
   try {
     return Boolean(
-      el?.closest?.("button, a, input, textarea, select, [role='button'], [data-stop-toggle='1']")
+      el?.closest?.(
+        "button, a, input, textarea, select, [role='button'], [data-stop-toggle='1']"
+      )
     );
   } catch {
     return false;
@@ -55,7 +57,10 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     const hh = Math.floor(s / 3600);
     const mm = Math.floor((s % 3600) / 60);
     const ss = s % 60;
-    if (hh > 0) return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+    if (hh > 0)
+      return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(
+        ss
+      ).padStart(2, "0")}`;
     return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
   };
 
@@ -67,9 +72,9 @@ export function PageHome({ api, tab, setTab, t, lang }) {
   const daily = vm.raw?.daily ?? vm.daily ?? null;
   const intraday = vm.raw?.intraday ?? vm.intraday ?? null;
   const status = vm.raw?.status ?? vm.status ?? null;
+
   // Top-level price snapshot (stitched from daily_latest.json in split mode)
   const pricesSnap = api?.mri?.prices ?? api?.prices ?? null;
-
 
   const asOf = vm.meta?.asOf ?? daily?.meta?.asOf ?? "";
   const fmtAsOfDate = (s) => {
@@ -114,8 +119,15 @@ export function PageHome({ api, tab, setTab, t, lang }) {
   const baseCfinal = Number.isFinite(todayScenario?.Cfinal) ? todayScenario.Cfinal : dailyC;
   const regime7 = todayScenario?.regime7 ?? daily?.regime7 ?? "--";
 
-  const todayProbs = (todayScenario?.probs && typeof todayScenario.probs === "object") ? todayScenario.probs : (daily?.probs ?? {});
-  const todayTags = Array.isArray(todayScenario?.tags) ? todayScenario.tags : (Array.isArray(daily?.tags) ? daily.tags : []);
+  const todayProbs =
+    todayScenario?.probs && typeof todayScenario.probs === "object"
+      ? todayScenario.probs
+      : daily?.probs ?? {};
+  const todayTags = Array.isArray(todayScenario?.tags)
+    ? todayScenario.tags
+    : Array.isArray(daily?.tags)
+      ? daily.tags
+      : [];
 
   // Short-term scenario shift signal: compare 20D vs 60D (daily packs)
   const getPeriodPack = (p) => {
@@ -145,9 +157,10 @@ export function PageHome({ api, tab, setTab, t, lang }) {
 
   const shortTermShiftTag =
     topK20 != null && topK60 != null && topK20 !== topK60
-      ? (isKo ? `ℹ️ 시나리오 변경 시그널` : `ℹ️ Scenario Change Signal`)
+      ? isKo
+        ? `ℹ️ 시나리오 변경 시그널`
+        : `ℹ️ Scenario Change Signal`
       : null;
-
 
   // Consistency: how well does today's intraday scenario align with the daily (60D) distribution?
   const intradayTopK = (() => {
@@ -158,13 +171,16 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     const top = Object.entries(pObj)
       .map(([k, v]) => [Number(k), parseProbEntry(v).p])
       .filter(([k, p]) => Number.isFinite(k) && typeof p === "number" && Number.isFinite(p))
-      .sort((a, b) => b[1] - a[1])[0];
+      .sort((a, b) => b[1].p - a[1].p)[0];
     return top ? top[0] : null;
   })();
 
-  const consistencyP = (hasIntradayScenario && intradayTopK != null)
-    ? (typeof daily?.probs?.[String(intradayTopK)] === "number" ? Number(daily.probs[String(intradayTopK)]) : null)
-    : null;
+  const consistencyP =
+    hasIntradayScenario && intradayTopK != null
+      ? typeof daily?.probs?.[String(intradayTopK)] === "number"
+        ? Number(daily.probs[String(intradayTopK)])
+        : null
+      : null;
 
   const consistency = typeof consistencyP === "number" && Number.isFinite(consistencyP) ? clamp01(consistencyP) : null;
 
@@ -209,15 +225,19 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       lang,
     });
   }, [score, Cfinal, regime7, todayProbs, todayTags, t, lang]);
+
   const a1ExtraTags = useMemo(() => {
     const out = [];
 
     // Confidence band tag (analysis, not prediction)
     if (typeof Cfinal === "number" && Number.isFinite(Cfinal)) {
       const tone = Cfinal >= 70 ? "good" : Cfinal >= 45 ? "warn" : "bad";
-      const label = Cfinal >= 70 ? L("신뢰도 높음", "High confidence")
-        : Cfinal >= 45 ? L("신뢰도 중간", "Medium confidence")
-        : L("신뢰도 낮음", "Low confidence");
+      const label =
+        Cfinal >= 70
+          ? L("신뢰도 높음", "High confidence")
+          : Cfinal >= 45
+            ? L("신뢰도 중간", "Medium confidence")
+            : L("신뢰도 낮음", "Low confidence");
       const msg = L(
         "확률이 아니라 '해석 신뢰도'입니다. 신뢰도가 낮을수록 문구를 보수적으로 읽어야 합니다.",
         "This is interpretation reliability (not a probability). Lower confidence means more conservative reading."
@@ -231,7 +251,10 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       out.push({
         text: L("시나리오 분산 큼", "High dispersion"),
         tone: "warn",
-        msg: L("단일 시나리오 확신이 약한 상태입니다. 태그/분포 중심으로 해석하세요.", "Single-scenario conviction is limited; interpret via tags + distribution."),
+        msg: L(
+          "단일 시나리오 확신이 약한 상태입니다. 태그/분포 중심으로 해석하세요.",
+          "Single-scenario conviction is limited; interpret via tags + distribution."
+        ),
       });
     }
 
@@ -252,24 +275,43 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       }
     };
 
-    const vixLevel = lastOf("^VIX") ?? (typeof intraday?.dailyFallback?.["^VIX"] === "number" ? intraday.dailyFallback["^VIX"] : null);
+    // ✅ dailyFallback is object {last, prevClose, changePct}
+    const vixLevel =
+      lastOf("^VIX") ??
+      intraday?.dailyFallback?.["^VIX"]?.last ??
+      intraday?.dailyFallback?.["VIX"]?.last ??
+      null;
+
     if (typeof vixLevel === "number" && Number.isFinite(vixLevel)) {
       const tone = vixLevel < 14 ? "good" : vixLevel < 20 ? "neutral" : vixLevel < 30 ? "warn" : "bad";
       out.push({
-        text: lang === "ko" ? `VIX ${vixLevel.toFixed(1)}` : `VIX ${vixLevel.toFixed(1)}`,
+        text: `VIX ${vixLevel.toFixed(1)}`,
         tone,
-        msg: L("공포지수는 '레벨'이 핵심입니다. 수치가 높을수록 스트레스 구간일 가능성이 큽니다.", "VIX is most meaningful as a level. Higher levels usually indicate higher stress."),
+        msg: L(
+          "공포지수는 '레벨'이 핵심입니다. 수치가 높을수록 스트레스 구간일 가능성이 큽니다.",
+          "VIX is most meaningful as a level. Higher levels usually indicate higher stress."
+        ),
       });
     }
 
-    const tnxRaw = lastOf("^TNX") ?? (typeof intraday?.dailyFallback?.["^TNX"] === "number" ? intraday.dailyFallback["^TNX"] : null);
-    if (typeof tnxRaw === "number" && Number.isFinite(tnxRaw)) {
-      const y10 = tnxRaw / 10; // ^TNX convention: 10y yield * 10
+    const tnxLevel =
+      lastOf("^TNX") ??
+      intraday?.dailyFallback?.["^TNX"]?.last ??
+      intraday?.dailyFallback?.["TNX"]?.last ??
+      null;
+
+    if (typeof tnxLevel === "number" && Number.isFinite(tnxLevel)) {
+      // Convention: ^TNX is often 10Y*10. If your data is already scaled (4.05), this will look wrong.
+      // Keep it consistent with your UI: you can comment this out if intraday already stores 4.xx.
+      const y10 = tnxLevel > 20 ? tnxLevel / 10 : tnxLevel;
       const tone = y10 < 3 ? "good" : y10 < 4.5 ? "neutral" : y10 < 5.5 ? "warn" : "bad";
       out.push({
-        text: lang === "ko" ? `10Y ${y10.toFixed(2)}%` : `10Y ${y10.toFixed(2)}%`,
+        text: `10Y ${y10.toFixed(2)}%`,
         tone,
-        msg: L("금리는 '절대 레벨' 자체가 민감도에 영향을 줍니다. (단기 증감보다 레벨 중심)", "Rates are often interpreted by absolute level (more than short-term % changes)."),
+        msg: L(
+          "금리는 '절대 레벨' 자체가 민감도에 영향을 줍니다. (단기 증감보다 레벨 중심)",
+          "Rates are often interpreted by absolute level (more than short-term % changes)."
+        ),
       });
     }
 
@@ -280,12 +322,10 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     const base = Array.isArray(scoreCopy?.reasonTags)
       ? scoreCopy.reasonTags.filter((v) => typeof v === "string" || (v && typeof v === "object"))
       : [];
-
     const extra = Array.isArray(a1ExtraTags) ? a1ExtraTags : [];
-
-    // Keep order: objective drivers first, then meta tags.
     return [...base, ...extra];
   }, [scoreCopy, a1ExtraTags]);
+
   const probs = todayProbs;
   const probList = useMemo(() => {
     return Object.entries(probs)
@@ -308,13 +348,18 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     if (!m) return { countdown: countdown || "--:--", openAt: null, openAtET: null };
     const hh = Number(m[1]);
     const mm = Number(m[2]);
-    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return { countdown: countdown || "--:--", openAt: null, openAtET: null };
+    if (!Number.isFinite(hh) || !Number.isFinite(mm))
+      return { countdown: countdown || "--:--", openAt: null, openAtET: null };
 
     const ms = (hh * 60 + mm) * 60 * 1000;
     const openAt = new Date(Date.now() + ms);
 
     const openAtLocal = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(openAt);
-    const openAtET = new Intl.DateTimeFormat(undefined, { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit" }).format(openAt);
+    const openAtET = new Intl.DateTimeFormat(undefined, {
+      timeZone: "America/New_York",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(openAt);
 
     return { countdown: `${hh}:${String(mm).padStart(2, "0")}`, openAt: openAtLocal, openAtET };
   }, [marketOpen, countdown]);
@@ -335,23 +380,24 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     );
     if (!Number.isFinite(baseLen) || baseLen < 3) return null;
 
+    // ✅ Ensure lastDay/lastTs are always defined (fixes your crash)
     const lastIdx = baseLen - 1;
     const lastTs = ts[lastIdx];
     const lastDay = typeof lastTs === "string" ? lastTs.slice(0, 10) : null;
 
     const pickLastDay = (n) => {
-      const lastTs = ts[n - 1];
-      return typeof lastTs === "string" ? lastTs.slice(0, 10) : null;
+      const lastTs2 = ts[n - 1];
+      return typeof lastTs2 === "string" ? lastTs2.slice(0, 10) : null;
     };
 
     const findAnchorIdx = (n) => {
-      const lastDay = pickLastDay(n);
-      if (!lastDay) return -1;
+      const lastDay2 = pickLastDay(n);
+      if (!lastDay2) return -1;
       let anchorIdx = -1;
       let anchorTime = Infinity;
       for (let i = 0; i < n; i++) {
         const d = typeof ts[i] === "string" ? ts[i].slice(0, 10) : null;
-        if (d !== lastDay) continue;
+        if (d !== lastDay2) continue;
         const tms = Date.parse(ts[i]);
         if (Number.isFinite(tms) && tms < anchorTime) {
           anchorTime = tms;
@@ -367,15 +413,16 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       const nn = Math.min(n, ts.length, arr.length);
       if (nn < 3) return null;
 
-      const lastDay = pickLastDay(nn);
-      if (!lastDay) return null;
+      const lastDay2 = pickLastDay(nn);
+      if (!lastDay2) return null;
 
       const anchorIdx = findAnchorIdx(nn);
       if (anchorIdx < 0 || anchorIdx >= nn) return null;
 
       const a = arr[anchorIdx];
       const b = arr[nn - 1];
-      if (typeof a !== "number" || typeof b !== "number" || !Number.isFinite(a) || !Number.isFinite(b) || a === 0) return null;
+      if (typeof a !== "number" || typeof b !== "number" || !Number.isFinite(a) || !Number.isFinite(b) || a === 0)
+        return null;
       return (b - a) / a; // fraction
     };
 
@@ -416,16 +463,13 @@ export function PageHome({ api, tab, setTab, t, lang }) {
 
       const prev = arr[anchorIdx];
       const last = arr[nn - 1];
-      if (typeof prev !== "number" || typeof last !== "number" || !Number.isFinite(prev) || !Number.isFinite(last)) return null;
+      if (typeof prev !== "number" || typeof last !== "number" || !Number.isFinite(prev) || !Number.isFinite(last))
+        return null;
       return { last, prev };
     };
 
     const lp = (sym, dailyKeys = []) => {
-      return (
-        lpSeries(sym) ||
-        dailyKeys.map((k) => lpDaily(k)).find(Boolean) ||
-        null
-      );
+      return lpSeries(sym) || dailyKeys.map((k) => lpDaily(k)).find(Boolean) || null;
     };
 
     const anchorIdxBase = findAnchorIdx(baseLen);
@@ -436,8 +480,8 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     const fmtPct = (p) => (p == null ? "--" : `${(p * 100).toFixed(2)}%`);
     const fmtLevel = (last, prev, decimals = 2, fallbackZero = false) => {
       const L0 = fallbackZero ? 0 : null;
-      const a = (last == null || !Number.isFinite(last)) ? L0 : last;
-      const b = (prev == null || !Number.isFinite(prev)) ? L0 : prev;
+      const a = last == null || !Number.isFinite(last) ? L0 : last;
+      const b = prev == null || !Number.isFinite(prev) ? L0 : prev;
       if (a == null) return "--";
       if (b == null) return `${a.toFixed(decimals)}`;
       const diff = a - b;
@@ -445,7 +489,7 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       return `${a.toFixed(decimals)} (${sign}${diff.toFixed(decimals)})`;
     };
     const fmtVixLevel = (v, fallbackZero = false) => {
-      const vv = (v == null || !Number.isFinite(v)) ? (fallbackZero ? 0 : null) : v;
+      const vv = v == null || !Number.isFinite(v) ? (fallbackZero ? 0 : null) : v;
       if (vv == null) return "--";
       const label = vv < 15 ? L("낮음", "Low") : vv < 25 ? L("중간", "Mid") : L("높음", "High");
       const suffix = (v == null || !Number.isFinite(v)) && fallbackZero ? L("중립", "Neutral") : label;
@@ -461,19 +505,20 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     const vixLP = lp("^VIX", ["VIX", "^VIX"]) || lp("VIX", ["VIX", "^VIX"]);
 
     // VIX bar should represent LEVEL (low↔high), not % change.
-    const vixLevel = vixLP?.last;
-    const vixBar = (typeof vixLevel === "number" && Number.isFinite(vixLevel))
-      ? (Math.max(-1, Math.min(1, (vixLevel - 20) / 10)) * 0.03)
-      : null;
+    const vixLevel2 = vixLP?.last;
+    const vixBar =
+      typeof vixLevel2 === "number" && Number.isFinite(vixLevel2)
+        ? Math.max(-1, Math.min(1, (vixLevel2 - 20) / 10)) * 0.03
+        : null;
 
     return {
       lastDay,
       lastTs,
       // Pairs (fraction)
-      qqqmMinusXlp: pQQQM != null && pXLP != null ? (pQQQM - pXLP) : null,
+      qqqmMinusXlp: pQQQM != null && pXLP != null ? pQQQM - pXLP : null,
       voo: pVOO,
-      uupMinusGld: pUUP != null && pGLD != null ? (pUUP - pGLD) : null,
-      tnx: (pTNX == null ? null : pTNX),
+      uupMinusGld: pUUP != null && pGLD != null ? pUUP - pGLD : null,
+      tnx: pTNX == null ? null : pTNX,
       vix: vixBar,
       // Right-side display texts
       texts: {
@@ -490,11 +535,10 @@ export function PageHome({ api, tab, setTab, t, lang }) {
   }, [intraday?.prices, intraday?.dailyFallback, pricesSnap]);
 
   const A2Bar = ({ label, value, rightText }) => {
-    const vmax = 0.03; // 3% full-scale (A is allowed to be volatile)
+    const vmax = 0.03; // 3% full-scale
     const v = typeof value === "number" && Number.isFinite(value) ? value : 0; // default neutral
     const mag = Math.min(1, Math.abs(v) / vmax);
     const dir = v >= 0 ? 1 : -1;
-
     const pctText = `${(v * 100).toFixed(2)}%`;
 
     return (
@@ -504,17 +548,13 @@ export function PageHome({ api, tab, setTab, t, lang }) {
           <span className="tabular-nums">{rightText ?? pctText}</span>
         </div>
 
-        {/* Centered bar (like B-2): left=down, right=up */}
+        {/* Centered bar: left=down, right=up */}
         <div className="mt-1 h-2 rounded-full bg-white/10 overflow-hidden relative flex">
           <div className="w-1/2 h-full flex justify-end">
-            {dir < 0 ? (
-              <div className="h-full bg-white/40" style={{ width: `${Math.round(mag * 100)}%` }} />
-            ) : null}
+            {dir < 0 ? <div className="h-full bg-white/40" style={{ width: `${Math.round(mag * 100)}%` }} /> : null}
           </div>
           <div className="w-1/2 h-full flex justify-start">
-            {dir > 0 ? (
-              <div className="h-full bg-white/40" style={{ width: `${Math.round(mag * 100)}%` }} />
-            ) : null}
+            {dir > 0 ? <div className="h-full bg-white/40" style={{ width: `${Math.round(mag * 100)}%` }} /> : null}
           </div>
           <div className="absolute left-1/2 top-0 h-full w-px bg-white/15" />
         </div>
@@ -525,14 +565,26 @@ export function PageHome({ api, tab, setTab, t, lang }) {
   const a2Meta = useMemo(() => {
     if (!a2Moves?.lastTs) return { sessionET: a2Moves?.lastDay ?? "--", lastLocal: "--", lastET: "--" };
     const ms = Date.parse(a2Moves.lastTs);
-    if (!Number.isFinite(ms)) return { sessionET: a2Moves?.lastDay ?? "--", lastLocal: String(a2Moves.lastTs), lastET: String(a2Moves.lastTs) };
+    if (!Number.isFinite(ms))
+      return { sessionET: a2Moves?.lastDay ?? "--", lastLocal: String(a2Moves.lastTs), lastET: String(a2Moves.lastTs) };
     const d = new Date(ms);
-    const lastLocal = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(d);
-    const lastET = new Intl.DateTimeFormat(undefined, { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(d);
+    const lastLocal = new Intl.DateTimeFormat(undefined, {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(d);
+    const lastET = new Intl.DateTimeFormat(undefined, {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(d);
     return { sessionET: a2Moves?.lastDay ?? "--", lastLocal, lastET };
   }, [a2Moves?.lastDay, a2Moves?.lastTs]);
-
-
 
   return (
     <div
@@ -542,104 +594,150 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       style={{ touchAction: "pan-y" }}
     >
       <div className={scoreLocked ? "pointer-events-none" : ""}>
-      {/* A-1 (Daily) */}
-      {view === "a1" ? (
-        <div className="grid gap-3">
-          <Card title={tSafe(t, "a1.title", L("오늘", "Today"))} subtitle={tSafe(t, "a1.subtitle", L("위험조정 해석", "Risk-adjusted interpretation"))}>
-            <div className="flex items-end justify-between gap-3">
-              <div className="flex items-end gap-3">
-                <div className="text-5xl font-extrabold text-white leading-none">{score == null ? "--" : String(Math.round(score))}</div>
-                <div className="pb-1">
-                  <div className="text-sm font-semibold text-white/90">{scoreLabel}</div>
-                  <div className="text-xs text-white/70">
-                    🛡 {tSafe(t, "score.confidence", L("신뢰도", "Confidence"))} {Cfinal == null ? "--" : String(Math.round(Cfinal))}
-                    {daily?.rel?.capped ? ` (${tSafe(t, "score.capped", L("상한", "Capped"))})` : ""}
+        {/* A-1 (Daily) */}
+        {view === "a1" ? (
+          <div className="grid gap-3">
+            <Card
+              title={tSafe(t, "a1.title", L("오늘", "Today"))}
+              subtitle={tSafe(t, "a1.subtitle", L("위험조정 해석", "Risk-adjusted interpretation"))}
+            >
+              <div className="flex items-end justify-between gap-3">
+                <div className="flex items-end gap-3">
+                  <div className="text-5xl font-extrabold text-white leading-none">
+                    {score == null ? "--" : String(Math.round(score))}
+                  </div>
+                  <div className="pb-1">
+                    <div className="text-sm font-semibold text-white/90">{scoreLabel}</div>
+                    <div className="text-xs text-white/70">
+                      🛡 {tSafe(t, "score.confidence", L("신뢰도", "Confidence"))}{" "}
+                      {Cfinal == null ? "--" : String(Math.round(Cfinal))}
+                      {daily?.rel?.capped ? ` (${tSafe(t, "score.capped", L("상한", "Capped"))})` : ""}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="pb-1 text-right">
-                <div className="text-xs text-white/70">
-                  {tSafe(t, "score.regime", L("레짐", "Regime"))} {String(regime7)}
-                </div>
-                <div className="text-xs text-white/60">{fmtAsOfDate(asOf) || "--"}</div>
-              </div>
-            </div>
-
-            <div className="mt-2 text-sm text-white/85 leading-snug">{scoreCopy?.summary ?? oneLine ?? ""}</div>
-            <div className="mt-1 text-xs text-white/60 leading-snug">{scoreCopy?.warning ?? ""}</div>
-
-            {Array.isArray(mergedReasonTags) && mergedReasonTags.length ? (
-              <div className="mt-2">
-                <TagList tags={mergedReasonTags} lang={lang} />
-              </div>
-            ) : null}
-
-            <div className="mt-3 h-2 rounded-full bg-white/10 overflow-hidden">
-              <div
-                className="h-full rounded-full bg-white/40"
-                style={{ width: `${Math.round(clamp01((Number(score ?? 0) || 0) / 100) * 100)}%` }}
-              />
-            </div>
-          </Card>
-        </div>
-      ) : (
-        <div>
-          <Card title={tSafe(t, "a2.factors", L("요인 (당일 변동)", "Factors (Today move)"))} subtitle={tSafe(t, "a2.factorsSub", L("전일 종가 대비", "vs previous close"))}>
-
-            {a2Moves ? (
-              <div>
-                <A2Bar label={L("XLP(방어) ↔ QQQM(성장)", "XLP(Defense) ↔ QQQM(Growth)")} value={a2Moves.qqqmMinusXlp} rightText={a2Moves?.texts?.xlpQqqm} />
-                <A2Bar label={L("VOO(시장: 하락 ↔ 상승)", "VOO(Market: down ↔ up)")} value={a2Moves.voo} rightText={a2Moves?.texts?.voo} />
-                <A2Bar label={L("^TNX(금리: 하락 ↔ 상승)", "^TNX(Rates: down ↔ up)")} value={a2Moves.tnx} rightText={a2Moves?.texts?.tnx} />
-                <A2Bar label={L("달러(UUP) ↔ 금(GLD)", "USD(UUP) ↔ Gold(GLD)")} value={a2Moves.uupMinusGld} rightText={a2Moves?.texts?.usdGold} />
-                <A2Bar label={L("^VIX(공포: 하락 ↔ 상승)", "^VIX(Fear: down ↔ up)")} value={a2Moves.vix} rightText={a2Moves?.texts?.vix} />
-                <div className="mt-2 text-[10px] text-white/50">
-                  {L("기준일", "Session")}: {a2Moves.lastDay} · {L("마지막", "Last")}: {String(a2Moves.lastTs).slice(0, 19).replace("T", " ")}
+                <div className="pb-1 text-right">
+                  <div className="text-xs text-white/70">
+                    {tSafe(t, "score.regime", L("레짐", "Regime"))} {String(regime7)}
+                  </div>
+                  <div className="text-xs text-white/60">{fmtAsOfDate(asOf) || "--"}</div>
                 </div>
               </div>
-            ) : (
-              <div className="text-xs text-white/60">{L("장중 데이터가 없어 당일 변동을 계산할 수 없습니다.", "Intraday data not available to compute today's move.")}</div>
-            )}
-          </Card>
 
-          <Card title={tSafe(t, "ui.quadrant", L("포지션 맵", "Position Map"))} subtitle={tSafe(t, "quadrant.subtitle", L("성장↔방어, 유입↔유출", "Growth↔Defense, Inflow↔Outflow"))}>
-            <div className="relative w-full aspect-[16/9] rounded-2xl bg-white/5 border border-white/10 overflow-hidden">
-              <div className="absolute inset-0">
-                <div className="absolute left-1/2 top-0 bottom-0 w-px bg-white/10" />
-                <div className="absolute top-1/2 left-0 right-0 h-px bg-white/10" />
+              <div className="mt-2 text-sm text-white/85 leading-snug">{scoreCopy?.summary ?? oneLine ?? ""}</div>
+              <div className="mt-1 text-xs text-white/60 leading-snug">{scoreCopy?.warning ?? ""}</div>
+
+              {Array.isArray(mergedReasonTags) && mergedReasonTags.length ? (
+                <div className="mt-2">
+                  <TagList tags={mergedReasonTags} lang={lang} />
+                </div>
+              ) : null}
+
+              <div className="mt-3 h-2 rounded-full bg-white/10 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-white/40"
+                  style={{ width: `${Math.round(clamp01((Number(score ?? 0) || 0) / 100) * 100)}%` }}
+                />
+              </div>
+            </Card>
+          </div>
+        ) : (
+          <div>
+            <Card
+              title={tSafe(t, "a2.factors", L("요인 (당일 변동)", "Factors (Today move)"))}
+              subtitle={tSafe(t, "a2.factorsSub", L("전일 종가 대비", "vs previous close"))}
+            >
+              {a2Moves ? (
+                <div>
+                  <A2Bar
+                    label={L("XLP(방어) ↔ QQQM(성장)", "XLP(Defense) ↔ QQQM(Growth)")}
+                    value={a2Moves.qqqmMinusXlp}
+                    rightText={a2Moves?.texts?.xlpQqqm}
+                  />
+                  <A2Bar
+                    label={L("VOO(시장: 하락 ↔ 상승)", "VOO(Market: down ↔ up)")}
+                    value={a2Moves.voo}
+                    rightText={a2Moves?.texts?.voo}
+                  />
+                  <A2Bar
+                    label={L("^TNX(금리: 하락 ↔ 상승)", "^TNX(Rates: down ↔ up)")}
+                    value={a2Moves.tnx}
+                    rightText={a2Moves?.texts?.tnx}
+                  />
+                  <A2Bar
+                    label={L("달러(UUP) ↔ 금(GLD)", "USD(UUP) ↔ Gold(GLD)")}
+                    value={a2Moves.uupMinusGld}
+                    rightText={a2Moves?.texts?.usdGold}
+                  />
+                  <A2Bar
+                    label={L("^VIX(공포: 하락 ↔ 상승)", "^VIX(Fear: down ↔ up)")}
+                    value={a2Moves.vix}
+                    rightText={a2Moves?.texts?.vix}
+                  />
+                  <div className="mt-2 text-[10px] text-white/50">
+                    {L("기준일", "Session")}: {a2Moves.lastDay} · {L("마지막", "Last")}:{" "}
+                    {String(a2Moves.lastTs).slice(0, 19).replace("T", " ")}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-xs text-white/60">
+                  {L("장중 데이터가 없어 당일 변동을 계산할 수 없습니다.", "Intraday data not available to compute today's move.")}
+                </div>
+              )}
+            </Card>
+
+            <Card
+              title={tSafe(t, "ui.quadrant", L("포지션 맵", "Position Map"))}
+              subtitle={tSafe(t, "quadrant.subtitle", L("성장↔방어, 유입↔유출", "Growth↔Defense, Inflow↔Outflow"))}
+            >
+              <div className="relative w-full aspect-[16/9] rounded-2xl bg-white/5 border border-white/10 overflow-hidden">
+                <div className="absolute inset-0">
+                  <div className="absolute left-1/2 top-0 bottom-0 w-px bg-white/10" />
+                  <div className="absolute top-1/2 left-0 right-0 h-px bg-white/10" />
+                </div>
+
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] text-white/60">
+                  {tSafe(t, "quadrant.defense", L("방어", "Defense"))}
+                </div>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-white/60">
+                  {tSafe(t, "quadrant.growth", L("성장", "Growth"))}
+                </div>
+                <div className="absolute left-1/2 bottom-2 -translate-x-1/2 text-[10px] text-white/60">
+                  {tSafe(t, "quadrant.outflow", L("유출", "Outflow"))}
+                </div>
+                <div className="absolute left-1/2 top-2 -translate-x-1/2 text-[10px] text-white/60">
+                  {tSafe(t, "quadrant.inflow", L("유입", "Inflow"))}
+                </div>
+
+                <div
+                  className="absolute w-3 h-3 rounded-full bg-white/70 shadow"
+                  style={{ left: `calc(${dotPos.left}% - 6px)`, top: `calc(${dotPos.top}% - 6px)` }}
+                  title={`x=${x == null ? "--" : Number(x).toFixed(2)}, y=${y == null ? "--" : Number(y).toFixed(2)}`}
+                />
               </div>
 
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] text-white/60">{tSafe(t, "quadrant.defense", L("방어", "Defense"))}</div>
-              <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-white/60">{tSafe(t, "quadrant.growth", L("성장", "Growth"))}</div>
-              <div className="absolute left-1/2 bottom-2 -translate-x-1/2 text-[10px] text-white/60">{tSafe(t, "quadrant.outflow", L("유출", "Outflow"))}</div>
-              <div className="absolute left-1/2 top-2 -translate-x-1/2 text-[10px] text-white/60">{tSafe(t, "quadrant.inflow", L("유입", "Inflow"))}</div>
-
-              <div
-                className="absolute w-3 h-3 rounded-full bg-white/70 shadow"
-                style={{ left: `calc(${dotPos.left}% - 6px)`, top: `calc(${dotPos.top}% - 6px)` }}
-                title={`x=${x == null ? "--" : Number(x).toFixed(2)}, y=${y == null ? "--" : Number(y).toFixed(2)}`}
-              />
-            </div>
-
-            <div className="mt-2 flex items-center justify-between text-xs text-white/70">
-              <span>x: {x == null ? "--" : Number(x).toFixed(2)}</span>
-              <span>y: {y == null ? "--" : Number(y).toFixed(2)}</span>
-            </div>
-          </Card>
-
-          <Card title={tSafe(t, "a2.intra", L("장중 진단", "Intraday Diagnostics"))} subtitle={marketOpen ? tSafe(t, "a2.intraOpen", L("실시간", "Live")) : tSafe(t, "a2.intraClosed", L("장 외", "Off-hours"))}>
-            {intraday?.intraday ? (
-              <div className="text-xs text-white/70 space-y-1">
-                <div>z_short: {Number.isFinite(intraday?.intraday?.zShort) ? Number(intraday.intraday.zShort).toFixed(2) : "--"}</div>
-                <div>corrAvg: {Number.isFinite(intraday?.intraday?.corrAvg) ? Number(intraday.intraday.corrAvg).toFixed(2) : "--"}</div>
-                <div>corrSurge: {intraday?.intraday?.corrSurge ? "YES" : "NO"}</div>
+              <div className="mt-2 flex items-center justify-between text-xs text-white/70">
+                <span>x: {x == null ? "--" : Number(x).toFixed(2)}</span>
+                <span>y: {y == null ? "--" : Number(y).toFixed(2)}</span>
               </div>
-	            ) : null}
-          </Card>
-        </div>
-      )}
+            </Card>
 
+            <Card
+              title={tSafe(t, "a2.intra", L("장중 진단", "Intraday Diagnostics"))}
+              subtitle={
+                marketOpen ? tSafe(t, "a2.intraOpen", L("실시간", "Live")) : tSafe(t, "a2.intraClosed", L("장 외", "Off-hours"))
+              }
+            >
+              {intraday?.intraday ? (
+                <div className="text-xs text-white/70 space-y-1">
+                  <div>z_short: {Number.isFinite(intraday?.intraday?.zShort) ? Number(intraday.intraday.zShort).toFixed(2) : "--"}</div>
+                  <div>corrAvg: {Number.isFinite(intraday?.intraday?.corrAvg) ? Number(intraday.intraday.corrAvg).toFixed(2) : "--"}</div>
+                  <div>corrSurge: {intraday?.intraday?.corrSurge ? "YES" : "NO"}</div>
+                </div>
+              ) : null}
+            </Card>
+          </div>
+        )}
       </div>
 
       {scoreLocked && (
@@ -649,14 +747,24 @@ export function PageHome({ api, tab, setTab, t, lang }) {
             {scoreLockReason === "PREMARKET" ? (
               <>
                 <div className="text-sm opacity-80">{L("프리장", "Premarket")}</div>
-                <div className="text-2xl font-semibold mt-1">{L("개장까지 ", "Opens in ")}{fmtMMSS(mc?.secondsToOpen || 0)}</div>
-                <div className="text-xs opacity-70 mt-2">{L("개장 전에는 스코어/시나리오를 잠시 비활성화합니다.", "Scores are hidden before the open.")}</div>
+                <div className="text-2xl font-semibold mt-1">
+                  {L("개장까지 ", "Opens in ")}
+                  {fmtMMSS(mc?.secondsToOpen || 0)}
+                </div>
+                <div className="text-xs opacity-70 mt-2">
+                  {L("개장 전에는 스코어/시나리오를 잠시 비활성화합니다.", "Scores are hidden before the open.")}
+                </div>
               </>
             ) : scoreLockReason === "OPEN_WARMUP" ? (
               <>
                 <div className="text-sm opacity-80">{L("데이터 준비중", "Warming up")}</div>
-                <div className="text-2xl font-semibold mt-1">{L("개장 후 ", "Since open: ")}{fmtMMSS(mc?.secondsSinceOpen || 0)}</div>
-                <div className="text-xs opacity-70 mt-2">{L("첫 스냅샷이 반영되면 자동으로 활성화됩니다.", "Will unlock after the first snapshot.")}</div>
+                <div className="text-2xl font-semibold mt-1">
+                  {L("개장 후 ", "Since open: ")}
+                  {fmtMMSS(mc?.secondsSinceOpen || 0)}
+                </div>
+                <div className="text-xs opacity-70 mt-2">
+                  {L("첫 스냅샷이 반영되면 자동으로 활성화됩니다.", "Will unlock after the first snapshot.")}
+                </div>
               </>
             ) : (
               <>
