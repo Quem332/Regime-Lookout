@@ -79,7 +79,6 @@ def _corr_avg(prices_df: pd.DataFrame) -> float:
         return 0.0
     vals = corr.values
     n = vals.shape[0]
-    # upper triangle excluding diagonal
     triu = vals[np.triu_indices(n, k=1)]
     triu = triu[np.isfinite(triu)]
     if triu.size == 0:
@@ -109,14 +108,12 @@ def _download_intraday(symbols: list[str], interval: str, period: str) -> pd.Dat
     return None
 
 def _extract_close(df: pd.DataFrame, symbols_by_key: dict[str, str]) -> pd.DataFrame:
-    # yfinance group_by='ticker' -> MultiIndex columns: (ticker, field)
     closes = {}
     for key, sym in symbols_by_key.items():
         try:
             if isinstance(df.columns, pd.MultiIndex):
                 s = df[(sym, "Close")]
             else:
-                # single ticker fallback
                 if "Close" in df.columns:
                     s = df["Close"]
                 else:
@@ -149,7 +146,6 @@ def _load_prev_daily_fallback_from_data_branch() -> dict:
         return {}
 
 def _fetch_1d_last_prev(sym: str) -> dict | None:
-    # Use auto_adjust=False to keep index values stable; handle multiindex/series variations.
     try:
         df = yf.download(
             sym,
@@ -173,7 +169,6 @@ def _fetch_1d_last_prev(sym: str) -> dict | None:
         return None
 
 def _build_daily_fallback(repo_root: str) -> dict:
-    # 1) from data-branch daily_latest.json if it has prices
     out: dict = {}
     prices = _load_prev_daily_fallback_from_data_branch()
     for k in ["TNX", "^TNX"]:
@@ -183,7 +178,6 @@ def _build_daily_fallback(repo_root: str) -> dict:
         if isinstance(prices.get(k), dict):
             out[k] = prices[k]
 
-    # 2) yfinance 1D direct if still missing
     if not any(k in out for k in ["TNX", "^TNX"]):
         p = _fetch_1d_last_prev("^TNX")
         if isinstance(p, dict):
@@ -195,7 +189,6 @@ def _build_daily_fallback(repo_root: str) -> dict:
             out["VIX"] = p
             out["^VIX"] = p
 
-    # 3) carry-forward from previous intraday_latest.json in working tree, if present
     try:
         p = os.path.join(repo_root, "public", "data", "intraday_latest.json")
         if os.path.exists(p):
@@ -210,6 +203,41 @@ def _build_daily_fallback(repo_root: str) -> dict:
         pass
 
     return out
+
+def _pick_fallback(daily_fallback: dict, keys: list[str]) -> dict | None:
+    for k in keys:
+        v = daily_fallback.get(k)
+        if isinstance(v, dict) and ("last" in v) and ("prevClose" in v):
+            return v
+    return None
+
+def _stitch_optional_series(prices_payload: dict, daily_fallback: dict, ts_len: int) -> None:
+    """
+    Ensure ^VIX/^TNX exist in intraday.prices as level series (constant),
+    so UI can show absolute level (and avoid missing rows).
+    Also provide prevClose arrays for stable delta calc if UI uses it.
+    NOTE: TNX commonly comes as 10Y*10 (e.g., 40.5 => 4.05%), so scale /10 here for UI level display.
+    """
+    prices_payload.setdefault("close", {})
+    prices_payload.setdefault("prevClose", {})
+
+    # VIX (no scaling)
+    vix = _pick_fallback(daily_fallback, ["^VIX", "VIX"])
+    if vix and "^VIX" not in prices_payload["close"]:
+        last = float(vix["last"])
+        prev = float(vix["prevClose"])
+        prices_payload["close"]["^VIX"] = [last] * ts_len
+        prices_payload["prevClose"]["^VIX"] = [prev] * ts_len
+
+    # TNX (scale /10 for percent-yield level)
+    tnx = _pick_fallback(daily_fallback, ["^TNX", "TNX"])
+    if tnx and "^TNX" not in prices_payload["close"]:
+        last_raw = float(tnx["last"])
+        prev_raw = float(tnx["prevClose"])
+        last = last_raw / 10.0
+        prev = prev_raw / 10.0
+        prices_payload["close"]["^TNX"] = [last] * ts_len
+        prices_payload["prevClose"]["^TNX"] = [prev] * ts_len
 
 def main() -> None:
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -227,19 +255,18 @@ def main() -> None:
         raise SystemExit("intraday download failed")
 
     close = _extract_close(df, INTRADAY_TICKERS)
-    # Require bars only for required symbols
     req = close[list(INTRADAY_TICKERS.keys())].dropna(how="any")
     if len(req) < 2:
-        # keep previous file (degraded)
         if _try_copy_previous(out_path):
             return
         raise SystemExit("insufficient intraday bars")
 
     tail = req.tail(80)
     asof_ts = tail.index[-1]
-    latency_min = int(max(0, round((now_et - asof_ts.tz_localize(ET) if asof_ts.tzinfo is None else now_et - asof_ts.astimezone(ET)).total_seconds() / 60)))
+    latency_min = int(max(0, round(
+        (now_et - asof_ts.tz_localize(ET) if asof_ts.tzinfo is None else now_et - asof_ts.astimezone(ET)).total_seconds() / 60
+    )))
 
-    # Basic intraday indicators
     z_short = _zscore_last(tail["VOO"].pct_change().dropna())
     corr_avg = _corr_avg(tail)
     corr_surge = bool(corr_avg >= 0.8)
@@ -251,38 +278,8 @@ def main() -> None:
 
     daily_fallback = _build_daily_fallback(repo_root)
 
-    # Ensure optional indices (^VIX/^TNX) are available to the UI even when intraday bars are unavailable.
-    # We stitch the latest daily close into the intraday series as a flat (constant) line.
-    try:
-        n = len(prices_payload.get("ts") or [])
-        if n > 0:
-            def _fb_last(sym: str):
-                d = daily_fallback.get(sym) or daily_fallback.get(sym.replace("^","")) or None
-                if isinstance(d, dict) and isinstance(d.get("last"), (int, float)) and math.isfinite(float(d["last"])):
-                    return float(d["last"])
-                return None
-            def _fb_prev(sym: str):
-                d = daily_fallback.get(sym) or daily_fallback.get(sym.replace("^","")) or None
-                if isinstance(d, dict) and isinstance(d.get("prevClose"), (int, float)) and math.isfinite(float(d["prevClose"])):
-                    return float(d["prevClose"])
-                return None
-
-            for sym in ["^VIX", "^TNX"]:
-                if sym not in prices_payload["close"]:
-                    lv = _fb_last(sym)
-                    if lv is not None:
-                        prices_payload["close"][sym] = [lv] * n
-
-            # Optional: attach prevClose map for more accurate "vs prev close" computations.
-            prev_map = {}
-            for sym in ["VOO","QQQM","XLP","UUP","GLD","^VIX","^TNX"]:
-                pv = _fb_prev(sym)
-                if pv is not None:
-                    prev_map[sym] = pv
-            if prev_map:
-                prices_payload["prevClose"] = prev_map
-    except Exception as e:
-        print(f"[intraday] warning: optional indices stitch failed: {e}")
+    # ✅ Stitch optional indices into intraday prices so A-pages never miss them
+    _stitch_optional_series(prices_payload, daily_fallback, ts_len=len(prices_payload["ts"]))
 
     payload = {
         "schemaVersion": "2.3",
@@ -297,7 +294,6 @@ def main() -> None:
             "prices": prices_payload,
             "dailyFallback": daily_fallback,
         },
-        # backward compat
         "dailyFallback": daily_fallback,
         "dataHealth": {"level": "OK", "source": "yfinance"},
         "fetchedAt": now_et.isoformat(),
