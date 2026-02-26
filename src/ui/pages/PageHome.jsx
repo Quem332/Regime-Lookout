@@ -210,13 +210,8 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     const base = Array.isArray(scoreCopy?.reasonTags)
       ? scoreCopy.reasonTags.filter((v) => typeof v === "string" && v.trim())
       : [];
-
-    if (typeof shortTermShiftTag === "string" && shortTermShiftTag.trim()) {
-      base.unshift(shortTermShiftTag);
-    }
-
     return base;
-  }, [scoreCopy, shortTermShiftTag]);
+  }, [scoreCopy]);
   const probs = todayProbs;
   const probList = useMemo(() => {
     return Object.entries(probs)
@@ -302,12 +297,31 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     };
 
     const lpDaily = (key) => {
+      // Primary: daily.prices (from daily_latest.json)
       const p = daily?.prices?.[key];
-      if (!p || typeof p !== "object") return null;
-      const last = typeof p.last === "number" && Number.isFinite(p.last) ? p.last : null;
-      const prev = typeof p.prevClose === "number" && Number.isFinite(p.prevClose) ? p.prevClose : null;
-      if (last == null || prev == null) return null;
-      return { last, prev };
+      if (p && typeof p === "object") {
+        const last = typeof p.last === "number" && Number.isFinite(p.last) ? p.last : null;
+        const prev = typeof p.prevClose === "number" && Number.isFinite(p.prevClose) ? p.prevClose : null;
+        if (last != null && prev != null) return { last, prev };
+      }
+
+      // Fallback: intraday.dailyFallback (when daily_latest.json doesn't include prices yet)
+      const fb = intraday?.dailyFallback?.[key];
+      if (fb && typeof fb === "object") {
+        const last = typeof fb.last === "number" && Number.isFinite(fb.last) ? fb.last : null;
+        const prev = typeof fb.prevClose === "number" && Number.isFinite(fb.prevClose) ? fb.prevClose : null;
+        if (last != null && prev != null) return { last, prev };
+      }
+
+      // Also try caret-prefixed keys if caller passes TNX/VIX
+      const fb2 = intraday?.dailyFallback?.[`^${key}`];
+      if (fb2 && typeof fb2 === "object") {
+        const last = typeof fb2.last === "number" && Number.isFinite(fb2.last) ? fb2.last : null;
+        const prev = typeof fb2.prevClose === "number" && Number.isFinite(fb2.prevClose) ? fb2.prevClose : null;
+        if (last != null && prev != null) return { last, prev };
+      }
+
+      return null;
     };
 
     const lpSeries = (sym) => {

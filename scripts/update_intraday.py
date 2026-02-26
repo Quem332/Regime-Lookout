@@ -41,6 +41,38 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
+def _daily_last_prev(symbol: str):
+    """Fetch last and previous daily closes for a Yahoo symbol."""
+    try:
+        df = yf.download([symbol], period="10d", interval="1d", auto_adjust=True, progress=False, threads=False)
+        if df is None or len(df) == 0:
+            return None
+        # yfinance returns a DF with columns like ('Close',) or multi-index depending on input
+        if hasattr(df.columns, "get_level_values"):
+            # When passing list, it may be multi-index
+            if symbol in df.columns.get_level_values(0):
+                s = df[symbol]["Close"]
+            elif "Close" in df.columns.get_level_values(-1):
+                # fallback
+                s = df["Close"]
+            else:
+                return None
+        else:
+            s = df["Close"] if "Close" in df.columns else None
+        if s is None:
+            return None
+        s = s.dropna()
+        if len(s) < 2:
+            return None
+        last = float(s.iloc[-1])
+        prev = float(s.iloc[-2])
+        if not (last == last and prev == prev):
+            return None
+        return {"last": last, "prevClose": prev}
+    except Exception:
+        return None
+
+
 
 # ============================================================
 # Intraday data builder (market hours / on-demand)
@@ -144,6 +176,7 @@ def main():
 
         stub = {
             "schemaVersion": "2.3",
+        "dailyFallback": daily_fallback,
             "asOf": now_et.isoformat(),
             "fetchedAt": now_et.isoformat(),
             "dataHealth": {"level": "DOWN", "source": "yfinance", "msg": msg},
@@ -213,7 +246,21 @@ def main():
 
     # Minimal prices payload for UI sparkline (last 80)
     tail = close_tail
-    prices_payload = {
+    prices_
+    # Daily fallback for series that are often missing intraday (TNX/VIX).
+    daily_fallback = {}
+    try:
+        tnx = _daily_last_prev("^TNX")
+        vix = _daily_last_prev("^VIX")
+        if tnx: 
+            daily_fallback["TNX"] = tnx
+            daily_fallback["^TNX"] = tnx
+        if vix:
+            daily_fallback["VIX"] = vix
+            daily_fallback["^VIX"] = vix
+    except Exception:
+        daily_fallback = {}
+payload = {
         "ts": [t.to_pydatetime().replace(tzinfo=ET).isoformat() for t in tail.index],
         "close": {k: [float(x) for x in tail[k].values] for k in tail.columns},
     }
