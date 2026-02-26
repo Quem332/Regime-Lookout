@@ -209,13 +209,83 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       lang,
     });
   }, [score, Cfinal, regime7, todayProbs, todayTags, t, lang]);
+  const a1ExtraTags = useMemo(() => {
+    const out = [];
+
+    // Confidence band tag (analysis, not prediction)
+    if (typeof Cfinal === "number" && Number.isFinite(Cfinal)) {
+      const tone = Cfinal >= 70 ? "good" : Cfinal >= 45 ? "warn" : "bad";
+      const label = Cfinal >= 70 ? L("신뢰도 높음", "High confidence")
+        : Cfinal >= 45 ? L("신뢰도 중간", "Medium confidence")
+        : L("신뢰도 낮음", "Low confidence");
+      const msg = L(
+        "확률이 아니라 '해석 신뢰도'입니다. 신뢰도가 낮을수록 문구를 보수적으로 읽어야 합니다.",
+        "This is interpretation reliability (not a probability). Lower confidence means more conservative reading."
+      );
+      out.push({ text: label, tone, msg });
+    }
+
+    // Dispersion tag (entropy)
+    const Hn = scoreCopy?.entropyNorm;
+    if (typeof Hn === "number" && Number.isFinite(Hn) && Hn >= 0.85) {
+      out.push({
+        text: L("시나리오 분산 큼", "High dispersion"),
+        tone: "warn",
+        msg: L("단일 시나리오 확신이 약한 상태입니다. 태그/분포 중심으로 해석하세요.", "Single-scenario conviction is limited; interpret via tags + distribution."),
+      });
+    }
+
+    // VIX / TNX level tags (if available)
+    const prices = intraday?.prices ?? null;
+    const ts = Array.isArray(prices?.ts) ? prices.ts : null;
+    const close = prices?.close && typeof prices.close === "object" ? prices.close : null;
+    const lastIdx = ts && ts.length ? ts.length - 1 : -1;
+
+    const lastOf = (sym) => {
+      try {
+        const arr = close?.[sym];
+        if (!Array.isArray(arr) || lastIdx < 0) return null;
+        const v = arr[lastIdx];
+        return typeof v === "number" && Number.isFinite(v) ? v : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const vixLevel = lastOf("^VIX") ?? (typeof intraday?.dailyFallback?.["^VIX"] === "number" ? intraday.dailyFallback["^VIX"] : null);
+    if (typeof vixLevel === "number" && Number.isFinite(vixLevel)) {
+      const tone = vixLevel < 14 ? "good" : vixLevel < 20 ? "neutral" : vixLevel < 30 ? "warn" : "bad";
+      out.push({
+        text: lang === "ko" ? `VIX ${vixLevel.toFixed(1)}` : `VIX ${vixLevel.toFixed(1)}`,
+        tone,
+        msg: L("공포지수는 '레벨'이 핵심입니다. 수치가 높을수록 스트레스 구간일 가능성이 큽니다.", "VIX is most meaningful as a level. Higher levels usually indicate higher stress."),
+      });
+    }
+
+    const tnxRaw = lastOf("^TNX") ?? (typeof intraday?.dailyFallback?.["^TNX"] === "number" ? intraday.dailyFallback["^TNX"] : null);
+    if (typeof tnxRaw === "number" && Number.isFinite(tnxRaw)) {
+      const y10 = tnxRaw / 10; // ^TNX convention: 10y yield * 10
+      const tone = y10 < 3 ? "good" : y10 < 4.5 ? "neutral" : y10 < 5.5 ? "warn" : "bad";
+      out.push({
+        text: lang === "ko" ? `10Y ${y10.toFixed(2)}%` : `10Y ${y10.toFixed(2)}%`,
+        tone,
+        msg: L("금리는 '절대 레벨' 자체가 민감도에 영향을 줍니다. (단기 증감보다 레벨 중심)", "Rates are often interpreted by absolute level (more than short-term % changes)."),
+      });
+    }
+
+    return out;
+  }, [intraday?.prices, intraday?.dailyFallback, Cfinal, scoreCopy?.entropyNorm, lang]);
+
   const mergedReasonTags = useMemo(() => {
     const base = Array.isArray(scoreCopy?.reasonTags)
-      ? scoreCopy.reasonTags.filter((v) => typeof v === "string" && v.trim())
+      ? scoreCopy.reasonTags.filter((v) => typeof v === "string" || (v && typeof v === "object"))
       : [];
 
-    return base;
-  }, [scoreCopy, shortTermShiftTag]);
+    const extra = Array.isArray(a1ExtraTags) ? a1ExtraTags : [];
+
+    // Keep order: objective drivers first, then meta tags.
+    return [...base, ...extra];
+  }, [scoreCopy, a1ExtraTags]);
   const probs = todayProbs;
   const probList = useMemo(() => {
     return Object.entries(probs)

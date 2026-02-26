@@ -594,6 +594,53 @@ try {
     ];
 
     const vTrack = [...baseV];
+    // Optional: incorporate intraday VIX/TNX *levels* when available.
+    // We convert levels to a conservative pseudo-z so A-1 tags/structure can reflect live conditions,
+    // without pretending we have full intraday historical normalization.
+    const lastLevel = (sym) => {
+      try {
+        const prices = i?.prices ?? null;
+        const ts = Array.isArray(prices?.ts) ? prices.ts : null;
+        const close = prices?.close && typeof prices.close === "object" ? prices.close : null;
+        if (!ts || !close) return null;
+        const arr = close?.[sym];
+        if (!Array.isArray(arr) || arr.length !== ts.length) return null;
+        const v = arr[arr.length - 1];
+        return typeof v === "number" && Number.isFinite(v) ? v : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const pseudoZFromVix = (lvl) => {
+      if (!Number.isFinite(lvl)) return null;
+      if (lvl < 14) return -1.0;
+      if (lvl < 20) return 0.0;
+      if (lvl < 30) return 1.0;
+      if (lvl < 40) return 2.0;
+      return 3.0;
+    };
+
+    const pseudoZFromTnx = (tnxRaw) => {
+      // ^TNX is 10y yield * 10
+      const y = Number(tnxRaw) / 10;
+      if (!Number.isFinite(y)) return null;
+      if (y < 3.0) return -0.5;
+      if (y < 4.0) return 0.0;
+      if (y < 5.0) return 0.8;
+      if (y < 6.0) return 1.6;
+      return 2.5;
+    };
+
+    const vixLvl = lastLevel("^VIX") ?? (typeof i?.dailyFallback?.["^VIX"] === "number" ? i.dailyFallback["^VIX"] : null);
+    const tnxLvl = lastLevel("^TNX") ?? (typeof i?.dailyFallback?.["^TNX"] === "number" ? i.dailyFallback["^TNX"] : null);
+
+    const zvix = pseudoZFromVix(vixLvl);
+    const zrates = pseudoZFromTnx(tnxLvl);
+
+    if (typeof zvix === "number" && Number.isFinite(zvix)) vTrack[4] = Math.max(-3, Math.min(3, zvix));
+    if (typeof zrates === "number" && Number.isFinite(zrates)) vTrack[2] = Math.max(-3, Math.min(3, zrates));
+
     if (typeof zShortVal === "number" && Number.isFinite(zShortVal)) {
       // Track "y" intraday using zShort (clamped)
       vTrack[1] = Math.max(-3, Math.min(3, zShortVal));

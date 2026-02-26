@@ -251,6 +251,39 @@ def main() -> None:
 
     daily_fallback = _build_daily_fallback(repo_root)
 
+    # Ensure optional indices (^VIX/^TNX) are available to the UI even when intraday bars are unavailable.
+    # We stitch the latest daily close into the intraday series as a flat (constant) line.
+    try:
+        n = len(prices_payload.get("ts") or [])
+        if n > 0:
+            def _fb_last(sym: str):
+                d = daily_fallback.get(sym) or daily_fallback.get(sym.replace("^","")) or None
+                if isinstance(d, dict) and isinstance(d.get("last"), (int, float)) and math.isfinite(float(d["last"])):
+                    return float(d["last"])
+                return None
+            def _fb_prev(sym: str):
+                d = daily_fallback.get(sym) or daily_fallback.get(sym.replace("^","")) or None
+                if isinstance(d, dict) and isinstance(d.get("prevClose"), (int, float)) and math.isfinite(float(d["prevClose"])):
+                    return float(d["prevClose"])
+                return None
+
+            for sym in ["^VIX", "^TNX"]:
+                if sym not in prices_payload["close"]:
+                    lv = _fb_last(sym)
+                    if lv is not None:
+                        prices_payload["close"][sym] = [lv] * n
+
+            # Optional: attach prevClose map for more accurate "vs prev close" computations.
+            prev_map = {}
+            for sym in ["VOO","QQQM","XLP","UUP","GLD","^VIX","^TNX"]:
+                pv = _fb_prev(sym)
+                if pv is not None:
+                    prev_map[sym] = pv
+            if prev_map:
+                prices_payload["prevClose"] = prev_map
+    except Exception as e:
+        print(f"[intraday] warning: optional indices stitch failed: {e}")
+
     payload = {
         "schemaVersion": "2.3",
         "asOf": asof_ts.to_pydatetime().replace(tzinfo=ET).isoformat(),
