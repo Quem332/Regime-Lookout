@@ -1,95 +1,16 @@
 import os
 import json
-
-import urllib.request
-
-def _write_stub(path: str, reason: str) -> None:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    stub = {
-        'schema': 'intraday.v1',
-        'asOf': None,
-        'status': 'unavailable',
-        'reason': reason,
-        'generatedAt': datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace('+00:00','Z'),
-    }
-    with open(path, 'w', encoding='utf-8', newline='\n') as f:
-        json.dump(stub, f, ensure_ascii=False, separators=(',', ':'))
-
-def _try_copy_previous(path: str) -> bool:
-    # Try to reuse last good file from data branch to avoid breaking UI when yfinance is flaky.
-    repo = os.environ.get('GITHUB_REPOSITORY')  # e.g. Quem332/Regime-Lookout
-    if not repo:
-        return False
-    url = f'https://raw.githubusercontent.com/{repo}/data/public/data/intraday_latest.json'
-    try:
-        with urllib.request.urlopen(url, timeout=20) as r:
-            data = r.read()
-        if not data or len(data) < 20:
-            return False
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, 'wb') as f:
-            f.write(data)
-        print('[intraday] reused previous intraday_latest.json from data branch')
-        return True
-    except Exception as e:
-        print(f'[intraday] failed to reuse previous file: {e}')
-        return False
 import datetime
+import urllib.request
 from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
 import yfinance as yf
 
-def _daily_last_prev(symbol: str):
-    """Fetch last and previous daily closes for a Yahoo symbol."""
-    try:
-        df = yf.download([symbol], period="10d", interval="1d", auto_adjust=True, progress=False, threads=False)
-        if df is None or len(df) == 0:
-            return None
-        # yfinance returns a DF with columns like ('Close',) or multi-index depending on input
-        if hasattr(df.columns, "get_level_values"):
-            # When passing list, it may be multi-index
-            if symbol in df.columns.get_level_values(0):
-                s = df[symbol]["Close"]
-            elif "Close" in df.columns.get_level_values(-1):
-                # fallback
-                s = df["Close"]
-            else:
-                return None
-        else:
-            s = df["Close"] if "Close" in df.columns else None
-        if s is None:
-            return None
-        s = s.dropna()
-        if len(s) < 2:
-            return None
-        last = float(s.iloc[-1])
-        prev = float(s.iloc[-2])
-        if not (last == last and prev == prev):
-            return None
-        return {"last": last, "prevClose": prev}
-    except Exception:
-        return None
-
-
-
-# ============================================================
-# Intraday data builder (market hours / on-demand)
-#
-# Writes: public/data/intraday_latest.json
-# - schemaVersion: 2.3
-# - asOf: ET timestamp for the most recent intraday bar
-# - intraday: { intervalUsed, prices, zShort, corrAvg, corrSurge }
-#
-# NOTE
-# - We keep this intentionally lightweight: UI/engine will decide how to
-#   combine it with Daily regime outputs.
-# ============================================================
-
 ET = ZoneInfo("America/New_York")
 
-INTRADAY_TICKERS = {
+REQUIRED = {
     "VOO": "VOO",
     "QQQM": "QQQM",
     "XLP": "XLP",
@@ -97,162 +18,251 @@ INTRADAY_TICKERS = {
     "GLD": "GLD",
 }
 
-# Optional intraday series: may be missing or sparse on Yahoo.
-OPTIONAL_INTRADAY_TICKERS = {
+OPTIONAL = {
     "TNX": "^TNX",
     "VIX": "^VIX",
 }
 
+MIN_BARS_REQUIRED = 20   # ~5h on 15m, enough for UI bars
+TAIL_BARS = 80           # UI payload tail length
+
+
+def _write_stub(path: str, reason: str) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    stub = {
+        "schemaVersion": "2.3",
+        "asOf": None,
+        "intervalUsed": "15m",
+        "latencyMin": None,
+        "intraday": {
+            "zShort": 0.0,
+            "corrAvg": 0.0,
+            "corrSurge": False,
+            "intervalUsed": "15m",
+            "prices": {"ts": [], "close": {}},
+            "dailyFallback": {},
+        },
+        "dataHealth": {"level": "UNAVAILABLE", "source": "yfinance", "reason": reason},
+        "fetchedAt": datetime.datetime.now(tz=ET).isoformat(),
+    }
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(stub, f, ensure_ascii=False, indent=2)
+
+
+def _try_copy_previous(path: str) -> bool:
+    """
+    Reuse last good file from data branch so UI doesn't freeze when yfinance is flaky.
+    """
+    repo = os.environ.get("GITHUB_REPOSITORY")  # e.g. Quem332/Regime-Lookout
+    if not repo:
+        return False
+    url = f"https://raw.githubusercontent.com/{repo}/data/public/data/intraday_latest.json"
+    try:
+        with urllib.request.urlopen(url, timeout=20) as r:
+            data = r.read()
+        if not data or len(data) < 200:
+            return False
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(data)
+        print("[intraday] reused previous intraday_latest.json from data branch")
+        return True
+    except Exception as e:
+        print(f"[intraday] failed to reuse previous file: {e}")
+        return False
+
 
 def _zscore_last(series: pd.Series) -> float:
-    s = series.dropna()
+    s = pd.to_numeric(series, errors="coerce").dropna()
     if len(s) < 10:
         return 0.0
-    mu = float(s.mean())
+    m = float(s.mean())
     sd = float(s.std(ddof=0))
-    if sd == 0.0 or np.isnan(sd):
+    if not np.isfinite(sd) or sd <= 1e-12:
         return 0.0
-    return float((s.iloc[-1] - mu) / sd)
+    return float((s.iloc[-1] - m) / sd)
 
 
-def _corr_avg(prices_df: pd.DataFrame) -> float:
-    # Correlation across assets on returns
-    rets = prices_df.pct_change().dropna(how="any")
-    if len(rets) < 10:
+def _corr_avg(close_df: pd.DataFrame) -> float:
+    try:
+        r = close_df.pct_change().dropna(how="any")
+        if len(r) < 20 or r.shape[1] < 2:
+            return 0.0
+        c = r.corr().values
+        if c.size == 0:
+            return 0.0
+        # mean of upper triangle (excluding diag)
+        n = c.shape[0]
+        vals = []
+        for i in range(n):
+            for j in range(i + 1, n):
+                v = c[i, j]
+                if np.isfinite(v):
+                    vals.append(float(v))
+        return float(np.mean(vals)) if vals else 0.0
+    except Exception:
         return 0.0
-    c = rets.corr().values
-    # exclude diagonal
-    n = c.shape[0]
-    if n <= 1:
-        return 0.0
-    mask = ~np.eye(n, dtype=bool)
-    vals = c[mask]
-    vals = vals[np.isfinite(vals)]
-    if len(vals) == 0:
-        return 0.0
-    return float(np.clip(vals.mean(), -1.0, 1.0))
+
+
+def _daily_last_prev(symbol: str):
+    """
+    Fetch last and previous daily closes for a Yahoo symbol.
+    Returns {"last": float, "prevClose": float} or None
+    """
+    try:
+        df = yf.download([symbol], period="14d", interval="1d", auto_adjust=True, progress=False, threads=False)
+        if df is None or len(df) == 0:
+            return None
+        # yfinance with list tickers may return MultiIndex columns (Ticker, OHLCV)
+        s = None
+        if hasattr(df.columns, "get_level_values"):
+            if symbol in df.columns.get_level_values(0) and "Close" in df[symbol].columns:
+                s = df[symbol]["Close"]
+            elif "Close" in df.columns.get_level_values(-1):
+                # sometimes single ticker still returns ("Close",) style
+                try:
+                    s = df["Close"]
+                except Exception:
+                    s = None
+        else:
+            s = df["Close"] if "Close" in df.columns else None
+
+        if s is None:
+            return None
+        s = pd.to_numeric(s, errors="coerce").dropna()
+        if len(s) < 2:
+            return None
+        last = float(s.iloc[-1])
+        prev = float(s.iloc[-2])
+        if not (np.isfinite(last) and np.isfinite(prev)):
+            return None
+        return {"last": last, "prevClose": prev}
+    except Exception:
+        return None
 
 
 def main():
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     out_path = os.path.join(repo_root, "public", "data", "intraday_latest.json")
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
     now_et = datetime.datetime.now(tz=ET)
-
-    # Use 15m bars, enough for 1-5 day window without hammering rate limits
     interval = "15m"
-    period = "5d"
 
-    df = None
-    last_exc = None
-    for _try in range(3):
-        try:
-            df = yf.download(
-                list(INTRADAY_TICKERS.values()),
-                period=period,
-                interval=interval,
-                auto_adjust=True,
-                progress=False,
-                group_by="ticker",
-                threads=False,
-            )
-            if df is not None and len(df) > 0:
-                break
-        except Exception as e:
-            last_exc = e
-            df = None
-            # simple backoff to avoid hammering Yahoo
-            try:
-                import time
-                time.sleep(0.8 * (2 ** _try))
-            except Exception:
-                pass
+    req_symbols = list(REQUIRED.values())
+    opt_symbols = list(OPTIONAL.values())
 
-    if df is None or len(df) == 0:
-        # Yahoo sometimes blocks CI or returns non-JSON/HTML (JSONDecodeError).
-        # We MUST NOT fail the workflow: keep previous file if present, otherwise write
-        # a minimal stub so UI can show "data unavailable" instead of breaking.
-        msg = str(last_exc or "yfinance empty")[:180]
+    # Fetch required set
+    req_df = yf.download(
+        req_symbols,
+        period="5d",
+        interval=interval,
+        auto_adjust=True,
+        progress=False,
+        threads=False,
+        group_by="column",
+    )
 
-        stub = {
-            "schemaVersion": "2.3",
-        "dailyFallback": daily_fallback,
-            "asOf": now_et.isoformat(),
-            "fetchedAt": now_et.isoformat(),
-            "dataHealth": {"level": "DOWN", "source": "yfinance", "msg": msg},
-            "intraday": None,
-        }
-
-        os.makedirs(os.path.dirname(out_path), exist_ok=True)
-
-        if os.path.exists(out_path):
-            try:
-                with open(out_path, "r", encoding="utf-8") as f:
-                    prev = json.load(f)
-                prev["fetchedAt"] = now_et.isoformat()
-                prev["dataHealth"] = {"level": "DEGRADED", "source": "cache", "msg": msg}
-                # keep previous intraday payload as-is
-                with open(out_path, "w", encoding="utf-8") as f:
-                    json.dump(prev, f, ensure_ascii=False, indent=2)
-                print("[WARN] Intraday fetch failed; kept previous intraday_latest.json (DEGRADED)")
-                return
-            except Exception as e:
-                stub["dataHealth"] = {"level": "DOWN", "source": "cache", "msg": f"failed to read previous file: {e}"[:180]}
-
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(stub, f, ensure_ascii=False, indent=2)
-        print("[WARN] Intraday fetch failed; wrote stub intraday_latest.json (DOWN)")
+    if req_df is None or len(req_df) == 0:
+        if _try_copy_previous(out_path):
+            return
+        _write_stub(out_path, "empty required intraday response")
         return
 
-    # Build required intraday series first (must be present and aligned).
-    close_req = pd.DataFrame(index=df.index)
-    for k, t in INTRADAY_TICKERS.items():
-        if t in df.columns.get_level_values(0):
-            close_req[k] = df[t]["Close"]
+    # Extract Close frame for required
+    close_req = None
+    try:
+        if isinstance(req_df.columns, pd.MultiIndex):
+            close_req = req_df["Close"]
+        else:
+            close_req = req_df[["Close"]].rename(columns={"Close": req_symbols[0]}) if "Close" in req_df.columns else None
+    except Exception:
+        close_req = None
+
+    if close_req is None or len(close_req) == 0:
+        if _try_copy_previous(out_path):
+            return
+        _write_stub(out_path, "missing Close for required")
+        return
+
+    # Rename required columns to UI keys (VOO, QQQM, ...)
+    inv_required = {v: k for k, v in REQUIRED.items()}
+    close_req = close_req.rename(columns=inv_required)
     close_req = close_req.dropna(how="all")
-    close_req = close_req.dropna(how="any")
-    if len(close_req) < 20:
-        raise RuntimeError("Insufficient intraday bars")
+    # Require completeness only on required tickers
+    close_req_clean = close_req.dropna(subset=list(REQUIRED.keys()), how="any")
 
-    # Use required series index as the canonical timeline.
-    asof_ts = close_req.index[-1].to_pydatetime().replace(tzinfo=ET)
-    latency_min = round((now_et - asof_ts).total_seconds() / 60.0, 1)
+    if close_req_clean is None or len(close_req_clean) < MIN_BARS_REQUIRED:
+        # yfinance sometimes returns too few bars (or NaNs). Reuse previous to avoid breaking UI.
+        if _try_copy_previous(out_path):
+            return
+        _write_stub(out_path, f"insufficient intraday bars (required<{MIN_BARS_REQUIRED})")
+        return
 
-    tail_idx = close_req.tail(80).index
+    # Tail index based on required clean series
+    tail_idx = close_req_clean.index[-TAIL_BARS:]
+    close_req_tail = close_req_clean.reindex(tail_idx)
 
-    # Optional series may be missing or sparse; align by forward-filling onto tail index.
-    close_opt = pd.DataFrame(index=tail_idx)
-    for k, t in OPTIONAL_INTRADAY_TICKERS.items():
-        try:
-            if t in df.columns.get_level_values(0):
-                s = df[t]["Close"].reindex(tail_idx).ffill()
-                if s.notna().any():
-                    close_opt[k] = s.astype(float)
-        except Exception:
-            pass
+    # Optional fetch (TNX/VIX) – best effort, won't block output
+    close_opt_tail = pd.DataFrame(index=tail_idx)
+    try:
+        opt_df = yf.download(
+            opt_symbols,
+            period="5d",
+            interval=interval,
+            auto_adjust=True,
+            progress=False,
+            threads=False,
+            group_by="column",
+        )
+        if opt_df is not None and len(opt_df) > 0:
+            if isinstance(opt_df.columns, pd.MultiIndex):
+                close_opt = opt_df["Close"]
+            else:
+                close_opt = None
+            if close_opt is not None and len(close_opt) > 0:
+                # rename to TNX/VIX keys
+                inv_optional = {v: k for k, v in OPTIONAL.items()}
+                close_opt = close_opt.rename(columns=inv_optional)
+                close_opt = close_opt.reindex(tail_idx).ffill()
+                # keep only cols with at least one finite value
+                for c in list(close_opt.columns):
+                    s = pd.to_numeric(close_opt[c], errors="coerce")
+                    if not np.isfinite(s).any():
+                        continue
+                    close_opt_tail[c] = s
+    except Exception as e:
+        print(f"[intraday] optional fetch failed: {e}")
 
-    # Final close frame on tail index
-    close_tail = close_req.reindex(tail_idx)
-    if len(close_opt.columns) > 0:
-        close_tail = pd.concat([close_tail, close_opt], axis=1)
+    # Combine tail closes
+    close_tail = pd.concat([close_req_tail, close_opt_tail], axis=1)
 
-    # zShort: short-horizon position of risk-on ratio within last ~2 sessions
-    ratio = np.log(close_req["QQQM"] / close_req["XLP"]).tail(52)  # ~13h on 15m
+    # Compute asOf from last available timestamp in required tail index
+    asof_ts = pd.Timestamp(tail_idx[-1]).to_pydatetime().replace(tzinfo=ET)
+    latency_min = int(round((now_et - asof_ts).total_seconds() / 60.0))
+
+    # zShort on risk-on ratio (QQQM/XLP) – use required raw (cleaned)
+    ratio = np.log(close_req_clean["QQQM"] / close_req_clean["XLP"]).tail(52)
     z_short = _zscore_last(ratio)
 
-    # corrAvg: average cross-asset correlation on returns
-    corr_avg = _corr_avg(close_req.tail(80))
+    corr_avg = _corr_avg(close_req_clean[list(REQUIRED.keys())].tail(80))
     corr_surge = bool(corr_avg >= 0.80)
 
-    # Minimal prices payload for UI sparkline (last 80)
-    tail = close_tail
-    prices_
-    # Daily fallback for series that are often missing intraday (TNX/VIX).
+    # Prices payload
+    prices_payload = {
+        "ts": [pd.Timestamp(t).to_pydatetime().replace(tzinfo=ET).isoformat() for t in tail_idx],
+        "close": {
+            k: [float(x) if np.isfinite(x) else None for x in pd.to_numeric(close_tail[k], errors="coerce").values]
+            for k in close_tail.columns
+        },
+    }
+
+    # Daily fallback for TNX/VIX (and both key variants for safety)
     daily_fallback = {}
     try:
         tnx = _daily_last_prev("^TNX")
         vix = _daily_last_prev("^VIX")
-        if tnx: 
+        if tnx:
             daily_fallback["TNX"] = tnx
             daily_fallback["^TNX"] = tnx
         if vix:
@@ -260,10 +270,6 @@ def main():
             daily_fallback["^VIX"] = vix
     except Exception:
         daily_fallback = {}
-payload = {
-        "ts": [t.to_pydatetime().replace(tzinfo=ET).isoformat() for t in tail.index],
-        "close": {k: [float(x) for x in tail[k].values] for k in tail.columns},
-    }
 
     payload = {
         "schemaVersion": "2.3",
@@ -276,13 +282,13 @@ payload = {
             "corrSurge": corr_surge,
             "intervalUsed": interval,
             "prices": prices_payload,
+            "dailyFallback": daily_fallback,
         },
         "dataHealth": {"level": "OK", "source": "yfinance"},
         "fetchedAt": now_et.isoformat(),
     }
 
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
+    with open(out_path, "w", encoding="utf-8", newline="\n") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
     print("[OK] Wrote intraday_latest.json", out_path)

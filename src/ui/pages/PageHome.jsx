@@ -210,7 +210,7 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     const base = Array.isArray(scoreCopy?.reasonTags)
       ? scoreCopy.reasonTags.filter((v) => typeof v === "string" && v.trim())
       : [];
-    return base;
+    return base.filter((v) => !(String(v).includes("Scenario Change Signal") || String(v).includes("시나리오 변경 시그널")));
   }, [scoreCopy]);
   const probs = todayProbs;
   const probList = useMemo(() => {
