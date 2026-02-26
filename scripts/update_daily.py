@@ -309,7 +309,7 @@ def _last_trading_day_et(now_et: datetime.datetime) -> str:
     return d.isoformat()
 
 
-def _download_daily(days_back: int = 420):
+def _download_daily(days_back: int = 420) -> pd.DataFrame | None:
     end = datetime.datetime.now(tz=ET)
     start = end - datetime.timedelta(days=days_back)
 
@@ -329,46 +329,57 @@ def _download_daily(days_back: int = 420):
             if df is None or len(df) == 0:
                 raise RuntimeError("empty yfinance response")
 
-            close = pd.DataFrame(index=df.index)
+            # Build close frame with canonical keys (QQQM, XLP, ..., TNX, VIX)
+            close = pd.DataFrame(index=pd.to_datetime(df.index))
             for k, t in TICKERS.items():
-                if hasattr(df.columns, "get_level_values") and t in df.columns.get_level_values(0):
-                    close[k] = df[t]["Close"]
-                else:
-                    if "Close" in df.columns and k in df.columns:
-                        close[k] = df[k]["Close"]
+                try:
+                    if isinstance(df.columns, pd.MultiIndex) and t in df.columns.get_level_values(0):
+                        close[k] = pd.to_numeric(df[(t, "Close")], errors="coerce")
+                    else:
+                        # single-ticker fallback shape
+                        if "Close" in df.columns:
+                            close[k] = pd.to_numeric(df["Close"], errors="coerce")
+                except Exception:
+                    continue
 
             close = close.dropna(how="all")
 
-# If indices like ^TNX/^VIX are missing or mostly-NaN from the batch request,
-# retry them individually (yfinance is flaky for index symbols in some environments).
-for _k in ["TNX", "VIX"]:
-    try:
-        if _k not in TICKERS:
-            continue
-        _sym = TICKERS[_k]
-        _s = close[_k] if _k in close.columns else None
-        _good = int(_s.dropna().shape[0]) if _s is not None else 0
-        if _good >= 50:
-            continue
-        df1 = yf.download(
-            _sym,
-            period="5y",
-            interval="1d",
-            auto_adjust=False,
-            progress=False,
-            threads=False,
-        )
-        if df1 is None or len(df1) < 2 or "Close" not in df1.columns:
-            continue
-        s1 = pd.to_numeric(df1["Close"], errors="coerce")
-        close[_k] = s1
-        # forward-fill to avoid small gaps breaking feature calc
-        close[_k] = close[_k].ffill()
-    except Exception:
-        pass
+            # If indices like ^TNX/^VIX are missing or mostly-NaN from the batch request,
+            # retry them individually (yfinance can be flaky for index symbols in CI).
+            for _k in ["TNX", "VIX"]:
+                try:
+                    if _k not in TICKERS:
+                        continue
+                    _sym = TICKERS[_k]
+                    _s = close[_k] if _k in close.columns else None
+                    _good = int(_s.dropna().shape[0]) if _s is not None else 0
+                    if _good >= 50:
+                        continue
+
+                    df1 = yf.download(
+                        _sym,
+                        period="5y",
+                        interval="1d",
+                        auto_adjust=False,
+                        progress=False,
+                        threads=False,
+                    )
+                    if df1 is None or len(df1) < 2 or "Close" not in df1.columns:
+                        continue
+                    s1 = pd.to_numeric(df1["Close"], errors="coerce").dropna()
+                    if len(s1) < 2:
+                        continue
+
+                    # Align by index; forward-fill to avoid small gaps breaking feature calc
+                    s1.index = pd.to_datetime(s1.index)
+                    close[_k] = s1.reindex(close.index).ffill()
+                except Exception:
+                    pass
+
             if close is None or len(close) == 0:
                 raise RuntimeError("no close series built")
             return close
+
         except Exception as e:
             last_err = e
             import time as _time
@@ -454,20 +465,19 @@ def main():
             periods_payload[key]["daily"] = compute_today_pack(periods_payload[key]["featuresZ"])
 
 
-        # Minimal price snapshot for UI (prevClose anchor for "today move" on indices like ^TNX/^VIX)
-        prices_payload = {}
+                # Minimal price snapshot for UI (prevClose anchor for "today move" on indices like ^TNX/^VIX)
+        prices_payload: dict = {}
         try:
-            for k, arr in close.items():
-                if not isinstance(arr, list) or len(arr) < 2:
+            for k in list(close.columns):
+                s = pd.to_numeric(close[k], errors="coerce").dropna()
+                if len(s) < 2:
                     continue
-                last = arr[-1]
-                prev = arr[-2]
-                if not isinstance(last, (int, float)) or not isinstance(prev, (int, float)):
-                    continue
-                if not (last == last and prev == prev) or prev == 0:
+                last = float(s.iloc[-1])
+                prev = float(s.iloc[-2])
+                if not (math.isfinite(last) and math.isfinite(prev)) or prev == 0:
                     continue
                 ch = (last - prev) / prev
-                prices_payload[k] = {"last": float(last), "prevClose": float(prev), "changePct": float(ch)}
+                prices_payload[k] = {"last": last, "prevClose": prev, "changePct": float(ch)}
         except Exception:
             prices_payload = {}
 

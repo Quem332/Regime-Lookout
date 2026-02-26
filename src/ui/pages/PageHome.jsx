@@ -3,7 +3,7 @@ import { Card } from "../components/Card";
 import { Pill } from "../components/Pill";
 import { TagList } from "../components/TagList";
 import { buildOneLineVerdict, buildScoreCopy } from "../../core/verdict";
-import { buildMriViewModel, tSafe, L } from "../render/mriPipeline";
+import { buildMriViewModel, tSafe, } from "../render/mriPipeline";
 
 function isInteractiveTarget(el) {
   try {
