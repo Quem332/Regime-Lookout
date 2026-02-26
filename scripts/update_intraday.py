@@ -107,31 +107,48 @@ def _corr_avg(close_df: pd.DataFrame) -> float:
 def _daily_last_prev(symbol: str):
     """
     Fetch last and previous daily closes for a Yahoo symbol.
-    Returns {"last": float, "prevClose": float} or None
+    Returns {"last": float, "prevClose": float} or None.
+
+    Notes:
+    - For indices like ^TNX/^VIX, yfinance intraday can be sparse. We use 1d bars here.
+    - Use auto_adjust=False for indices to avoid occasional empty/NaN series.
     """
     try:
-        df = yf.download([symbol], period="14d", interval="1d", auto_adjust=True, progress=False, threads=False)
+        df = yf.download(
+            symbol,
+            period="30d",
+            interval="1d",
+            auto_adjust=False,
+            progress=False,
+            threads=False,
+        )
         if df is None or len(df) == 0:
             return None
-        # yfinance with list tickers may return MultiIndex columns (Ticker, OHLCV)
+
+        # Common shapes:
+        # 1) Single ticker (string) -> columns: Open/High/Low/Close/Adj Close/Volume
+        # 2) MultiIndex can still appear in some edge cases; handle conservatively
         s = None
-        if hasattr(df.columns, "get_level_values"):
-            if symbol in df.columns.get_level_values(0) and "Close" in df[symbol].columns:
-                s = df[symbol]["Close"]
-            elif "Close" in df.columns.get_level_values(-1):
-                # sometimes single ticker still returns ("Close",) style
-                try:
-                    s = df["Close"]
-                except Exception:
-                    s = None
-        else:
-            s = df["Close"] if "Close" in df.columns else None
+        try:
+            if "Close" in df.columns:
+                s = df["Close"]
+            elif hasattr(df.columns, "get_level_values"):
+                # MultiIndex: (Ticker, Field)
+                if "Close" in df.columns.get_level_values(-1):
+                    # try to pick the first "Close" column
+                    close_cols = [c for c in df.columns if isinstance(c, tuple) and c[-1] == "Close"]
+                    if close_cols:
+                        s = df[close_cols[0]]
+        except Exception:
+            s = None
 
         if s is None:
             return None
+
         s = pd.to_numeric(s, errors="coerce").dropna()
         if len(s) < 2:
             return None
+
         last = float(s.iloc[-1])
         prev = float(s.iloc[-2])
         if not (np.isfinite(last) and np.isfinite(prev)):

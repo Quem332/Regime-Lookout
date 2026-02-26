@@ -338,6 +338,19 @@ def _download_daily(days_back: int = 420):
                         close[k] = df[k]["Close"]
 
             close = close.dropna(how="all")
+            # If indices are missing or all-NaN, fetch them separately (yfinance can be flaky for ^TNX/^VIX in batch mode)
+            try:
+                if ("TNX" not in close.columns) or close["TNX"].dropna().empty:
+                    df_tnx = yf.download("^TNX", period="30d", interval="1d", auto_adjust=False, progress=False, threads=False)
+                    if df_tnx is not None and len(df_tnx) > 0 and "Close" in df_tnx.columns:
+                        close["TNX"] = df_tnx["Close"]
+                if ("VIX" not in close.columns) or close["VIX"].dropna().empty:
+                    df_vix = yf.download("^VIX", period="30d", interval="1d", auto_adjust=False, progress=False, threads=False)
+                    if df_vix is not None and len(df_vix) > 0 and "Close" in df_vix.columns:
+                        close["VIX"] = df_vix["Close"]
+            except Exception:
+                pass
+
             if close is None or len(close) == 0:
                 raise RuntimeError("no close series built")
             return close
