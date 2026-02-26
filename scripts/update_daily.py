@@ -338,19 +338,6 @@ def _download_daily(days_back: int = 420):
                         close[k] = df[k]["Close"]
 
             close = close.dropna(how="all")
-            # If indices are missing or all-NaN, fetch them separately (yfinance can be flaky for ^TNX/^VIX in batch mode)
-            try:
-                if ("TNX" not in close.columns) or close["TNX"].dropna().empty:
-                    df_tnx = yf.download("^TNX", period="30d", interval="1d", auto_adjust=False, progress=False, threads=False)
-                    if df_tnx is not None and len(df_tnx) > 0 and "Close" in df_tnx.columns:
-                        close["TNX"] = df_tnx["Close"]
-                if ("VIX" not in close.columns) or close["VIX"].dropna().empty:
-                    df_vix = yf.download("^VIX", period="30d", interval="1d", auto_adjust=False, progress=False, threads=False)
-                    if df_vix is not None and len(df_vix) > 0 and "Close" in df_vix.columns:
-                        close["VIX"] = df_vix["Close"]
-            except Exception:
-                pass
-
             if close is None or len(close) == 0:
                 raise RuntimeError("no close series built")
             return close
@@ -440,21 +427,25 @@ def main():
 
 
         # Minimal price snapshot for UI (prevClose anchor for "today move" on indices like ^TNX/^VIX)
-        # NOTE: `close` is a pandas DataFrame. Iterating via `.items()` returns Series, not lists.
-        prices_payload = {}
-        try:
-            for k in list(close.columns):
-                s = close[k].dropna()
-                if len(s) < 2:
-                    continue
-                last = float(s.iloc[-1])
-                prev = float(s.iloc[-2])
-                if prev == 0:
-                    continue
-                ch = (last - prev) / prev
-                prices_payload[str(k)] = {"last": last, "prevClose": prev, "changePct": float(ch)}
-        except Exception:
-            prices_payload = {}
+# close is a DataFrame; each column is a Series (NOT a list).
+prices_payload = {}
+try:
+    for k in list(close.columns):
+        s = close[k].dropna()
+        if len(s) < 2:
+            continue
+        last = s.iloc[-1]
+        prev = s.iloc[-2]
+        if not isinstance(last, (int, float)) or not isinstance(prev, (int, float)):
+            continue
+        if not (last == last and prev == prev) or prev == 0:
+            continue
+        ch = (last - prev) / prev
+        prices_payload[k] = {"last": float(last), "prevClose": float(prev), "changePct": float(ch)}
+except Exception:
+    prices_payload = {}
+
+payload = {}
 
         payload = {
             "schemaVersion": "2.3",

@@ -3,7 +3,7 @@ import { Card } from "../components/Card";
 import { Pill } from "../components/Pill";
 import { TagList } from "../components/TagList";
 import { buildOneLineVerdict, buildScoreCopy } from "../../core/verdict";
-import { buildMriViewModel, tSafe } from "../render/mriPipeline";
+import { buildMriViewModel, tSafe, L } from "../render/mriPipeline";
 
 function isInteractiveTarget(el) {
   try {
@@ -210,8 +210,13 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     const base = Array.isArray(scoreCopy?.reasonTags)
       ? scoreCopy.reasonTags.filter((v) => typeof v === "string" && v.trim())
       : [];
-    return base.filter((v) => !(String(v).includes("Scenario Change Signal") || String(v).includes("시나리오 변경 시그널")));
-  }, [scoreCopy]);
+
+    if (typeof shortTermShiftTag === "string" && shortTermShiftTag.trim()) {
+      base.unshift(shortTermShiftTag);
+    }
+
+    return base;
+  }, [scoreCopy, shortTermShiftTag]);
   const probs = todayProbs;
   const probList = useMemo(() => {
     return Object.entries(probs)
@@ -292,36 +297,19 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       for (const k of arr) {
         const v = daily?.prices?.[k]?.changePct;
         if (typeof v === "number" && Number.isFinite(v)) return v;
+        const vf = intraday?.dailyFallback?.[k]?.changePct;
+        if (typeof vf === "number" && Number.isFinite(vf)) return vf;
       }
       return null;
     };
 
     const lpDaily = (key) => {
-      // Primary: daily.prices (from daily_latest.json)
-      const p = daily?.prices?.[key];
-      if (p && typeof p === "object") {
-        const last = typeof p.last === "number" && Number.isFinite(p.last) ? p.last : null;
-        const prev = typeof p.prevClose === "number" && Number.isFinite(p.prevClose) ? p.prevClose : null;
-        if (last != null && prev != null) return { last, prev };
-      }
-
-      // Fallback: intraday.dailyFallback (when daily_latest.json doesn't include prices yet)
-      const fb = intraday?.dailyFallback?.[key];
-      if (fb && typeof fb === "object") {
-        const last = typeof fb.last === "number" && Number.isFinite(fb.last) ? fb.last : null;
-        const prev = typeof fb.prevClose === "number" && Number.isFinite(fb.prevClose) ? fb.prevClose : null;
-        if (last != null && prev != null) return { last, prev };
-      }
-
-      // Also try caret-prefixed keys if caller passes TNX/VIX
-      const fb2 = intraday?.dailyFallback?.[`^${key}`];
-      if (fb2 && typeof fb2 === "object") {
-        const last = typeof fb2.last === "number" && Number.isFinite(fb2.last) ? fb2.last : null;
-        const prev = typeof fb2.prevClose === "number" && Number.isFinite(fb2.prevClose) ? fb2.prevClose : null;
-        if (last != null && prev != null) return { last, prev };
-      }
-
-      return null;
+      const p = daily?.prices?.[key] ?? intraday?.dailyFallback?.[key];
+      if (!p || typeof p !== "object") return null;
+      const last = typeof p.last === "number" && Number.isFinite(p.last) ? p.last : null;
+      const prev = typeof p.prevClose === "number" && Number.isFinite(p.prevClose) ? p.prevClose : null;
+      if (last == null || prev == null) return null;
+      return { last, prev };
     };
 
     const lpSeries = (sym) => {
@@ -355,29 +343,13 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       const sign = diff >= 0 ? "+" : "";
       return `${a.toFixed(decimals)} (${sign}${diff.toFixed(decimals)})`;
     };
-
-    // ^TNX from Yahoo is often scaled by 10 (e.g., 43.20 for 4.32%).
-    // Display as yield% plus bp change (more intuitive than % change).
-    const fmtTnxLevel = (last, prev) => {
-      const a0 = (last == null || !Number.isFinite(last)) ? null : last;
-      const b0 = (prev == null || !Number.isFinite(prev)) ? null : prev;
-      if (a0 == null) return "-";
-
-      const a = a0 > 20 ? (a0 / 10) : a0;
-      const b = b0 == null ? null : (b0 > 20 ? (b0 / 10) : b0);
-
-      if (b == null) return `${a.toFixed(2)}%`;
-      const bp = (a - b) * 100; // 1% = 100bp
-      const sign = bp >= 0 ? "+" : "";
-      return `${a.toFixed(2)}% (${sign}${bp.toFixed(1)}bp)`;
-    };
     const fmtVixLevel = (v, fallbackZero = false) => {
-  const vv = (v == null || !Number.isFinite(v)) ? (fallbackZero ? 0 : null) : v;
-  if (vv == null) return "-";
-  const label = vv < 15 ? L("낮음", "Low") : vv < 25 ? L("중간", "Mid") : L("높음", "High");
-  const suffix = (v == null || !Number.isFinite(v)) && fallbackZero ? L("중립", "Neutral") : label;
-  return `${vv.toFixed(1)} (${suffix})`;
-};
+      const vv = (v == null || !Number.isFinite(v)) ? (fallbackZero ? 0 : null) : v;
+      if (vv == null) return "--";
+      const label = vv < 15 ? L("낮음", "Low") : vv < 25 ? L("중간", "Mid") : L("높음", "High");
+      const suffix = (v == null || !Number.isFinite(v)) && fallbackZero ? L("중립", "Neutral") : label;
+      return `${vv.toFixed(1)} (${suffix})`;
+    };
 
     const qqqmLP = lp("QQQM", ["QQQM"]);
     const xlpLP = lp("XLP", ["XLP"]);
@@ -386,10 +358,12 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     const gldLP = lp("GLD", ["GLD"]);
     const tnxLP = lp("^TNX", ["TNX", "^TNX"]) || lp("TNX", ["TNX", "^TNX"]);
     const vixLP = lp("^VIX", ["VIX", "^VIX"]) || lp("VIX", ["VIX", "^VIX"]);
-// Prefer bp-based move for ^TNX (more intuitive than % change)
-const tnxBp = (tnxLP?.last != null && tnxLP?.prev != null) ? ((tnxLP.last - tnxLP.prev) * 10) : null; // bp
-const tnxMove = (tnxBp == null || !Number.isFinite(tnxBp)) ? null : (tnxBp / 1000); // normalize so 30bp ~= 0.03 full-scale
 
+    // VIX bar should represent LEVEL (low↔high), not % change.
+    const vixLevel = vixLP?.last;
+    const vixBar = (typeof vixLevel === "number" && Number.isFinite(vixLevel))
+      ? (Math.max(-1, Math.min(1, (vixLevel - 20) / 10)) * 0.03)
+      : null;
 
     return {
       lastDay,
@@ -398,13 +372,13 @@ const tnxMove = (tnxBp == null || !Number.isFinite(tnxBp)) ? null : (tnxBp / 100
       qqqmMinusXlp: pQQQM != null && pXLP != null ? (pQQQM - pXLP) : null,
       voo: pVOO,
       uupMinusGld: pUUP != null && pGLD != null ? (pUUP - pGLD) : null,
-      tnx: (tnxMove == null ? (pTNX == null ? null : pTNX) : tnxMove),
-      vix: (pVIX == null ? null : pVIX),
+      tnx: (pTNX == null ? null : pTNX),
+      vix: vixBar,
       // Right-side display texts
       texts: {
         xlpQqqm: `${fmtLevel(qqqmLP?.last, qqqmLP?.prev, 2)} / ${fmtLevel(xlpLP?.last, xlpLP?.prev, 2)}`,
         voo: fmtLevel(vooLP?.last, vooLP?.prev, 2),
-        tnx: fmtTnxLevel(tnxLP?.last, tnxLP?.prev),
+        tnx: fmtLevel(tnxLP?.last, tnxLP?.prev, 2, false),
         usdGold: `${fmtLevel(uupLP?.last, uupLP?.prev, 2)} / ${fmtLevel(gldLP?.last, gldLP?.prev, 2)}`,
         vix: fmtVixLevel(vixLP?.last, false),
       },
@@ -414,68 +388,49 @@ const tnxMove = (tnxBp == null || !Number.isFinite(tnxBp)) ? null : (tnxBp / 100
     };
   }, [intraday?.prices, daily?.prices]);
 
-  const A2Bar = ({ label, value, rightText, vmax = 0.03, valueText }) => {
-  const isValid = typeof value === "number" && Number.isFinite(value);
-  const v = isValid ? value : 0;
-  const mag = Math.min(1, Math.abs(v) / vmax);
-  const dir = v >= 0 ? 1 : -1;
+  const A2Bar = ({ label, value, rightText }) => {
+    const vmax = 0.03; // 3% full-scale (A is allowed to be volatile)
+    const v = typeof value === "number" && Number.isFinite(value) ? value : 0; // default neutral
+    const mag = Math.min(1, Math.abs(v) / vmax);
+    const dir = v >= 0 ? 1 : -1;
 
-  const pctText = valueText ?? (isValid ? `${(v * 100).toFixed(2)}%` : "0");
+    const pctText = `${(v * 100).toFixed(2)}%`;
 
-  return (
-    <div className="mb-2">
-      <div className="flex items-center justify-between text-xs text-white/70">
-        <span>{label}</span>
-        <span className="tabular-nums">{rightText ?? pctText}</span>
-      </div>
-
-      {/* Centered bar (like B-2): left=down, right=up */}
-      <div className="mt-1 h-2 rounded-full bg-white/10 overflow-hidden relative flex">
-        <div className="w-1/2 h-full flex justify-end">
-          {isValid && dir < 0 ? (
-            <div className="h-full bg-white/40" style={{ width: `${Math.round(mag * 100)}%` }} />
-          ) : null}
+    return (
+      <div className="mb-2">
+        <div className="flex items-center justify-between text-xs text-white/70">
+          <span>{label}</span>
+          <span className="tabular-nums">{rightText ?? pctText}</span>
         </div>
-        <div className="w-1/2 h-full flex justify-start">
-          {isValid && dir > 0 ? (
-            <div className="h-full bg-white/40" style={{ width: `${Math.round(mag * 100)}%` }} />
-          ) : null}
-        </div>
-        <div className="absolute left-1/2 top-0 h-full w-px bg-white/15" />
-      </div>
-    </div>
-  );
-};
 
+        {/* Centered bar (like B-2): left=down, right=up */}
+        <div className="mt-1 h-2 rounded-full bg-white/10 overflow-hidden relative flex">
+          <div className="w-1/2 h-full flex justify-end">
+            {dir < 0 ? (
+              <div className="h-full bg-white/40" style={{ width: `${Math.round(mag * 100)}%` }} />
+            ) : null}
+          </div>
+          <div className="w-1/2 h-full flex justify-start">
+            {dir > 0 ? (
+              <div className="h-full bg-white/40" style={{ width: `${Math.round(mag * 100)}%` }} />
+            ) : null}
+          </div>
+          <div className="absolute left-1/2 top-0 h-full w-px bg-white/15" />
+        </div>
+      </div>
+    );
+  };
 
   const a2Meta = useMemo(() => {
-    const sessionET = a2Moves?.lastDay ?? "--";
-    const lastTs = a2Moves?.lastTs;
-    if (!lastTs) return { sessionET, lastET: "--", lastKST: "--" };
-
-    const ms = Date.parse(lastTs);
-    if (!Number.isFinite(ms)) return { sessionET, lastET: String(lastTs), lastKST: "--" };
-
+    if (!a2Moves?.lastTs) return { sessionET: a2Moves?.lastDay ?? "--", lastLocal: "--", lastET: "--" };
+    const ms = Date.parse(a2Moves.lastTs);
+    if (!Number.isFinite(ms)) return { sessionET: a2Moves?.lastDay ?? "--", lastLocal: String(a2Moves.lastTs), lastET: String(a2Moves.lastTs) };
     const d = new Date(ms);
-
-    const fmtYmdHm = (tz) => {
-      const parts = new Intl.DateTimeFormat("en-CA", {
-        timeZone: tz,
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      }).formatToParts(d);
-      const get = (type) => parts.find((p) => p.type === type)?.value ?? "";
-      return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}`;
-    };
-
-    const lastET = fmtYmdHm("America/New_York");
-    const lastKST = fmtYmdHm("Asia/Seoul");
-    return { sessionET, lastET, lastKST };
+    const lastLocal = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(d);
+    const lastET = new Intl.DateTimeFormat(undefined, { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(d);
+    return { sessionET: a2Moves?.lastDay ?? "--", lastLocal, lastET };
   }, [a2Moves?.lastDay, a2Moves?.lastTs]);
+
 
 
   return (
@@ -539,7 +494,7 @@ const tnxMove = (tnxBp == null || !Number.isFinite(tnxBp)) ? null : (tnxBp / 100
                 <A2Bar label={L("달러(UUP) ↔ 금(GLD)", "USD(UUP) ↔ Gold(GLD)")} value={a2Moves.uupMinusGld} rightText={a2Moves?.texts?.usdGold} />
                 <A2Bar label={L("^VIX(공포: 하락 ↔ 상승)", "^VIX(Fear: down ↔ up)")} value={a2Moves.vix} rightText={a2Moves?.texts?.vix} />
                 <div className="mt-2 text-[10px] text-white/50">
-                  {a2Meta.lastET} ET<br/>{a2Meta.lastKST} KST
+                  {L("기준일", "Session")}: {a2Moves.lastDay} · {L("마지막", "Last")}: {String(a2Moves.lastTs).slice(0, 19).replace("T", " ")}
                 </div>
               </div>
             ) : (
