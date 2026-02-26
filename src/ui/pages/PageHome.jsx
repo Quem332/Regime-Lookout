@@ -563,28 +563,40 @@ export function PageHome({ api, tab, setTab, t, lang }) {
   };
 
   const a2Meta = useMemo(() => {
-    if (!a2Moves?.lastTs) return { sessionET: a2Moves?.lastDay ?? "--", lastLocal: "--", lastET: "--" };
-    const ms = Date.parse(a2Moves.lastTs);
-    if (!Number.isFinite(ms))
-      return { sessionET: a2Moves?.lastDay ?? "--", lastLocal: String(a2Moves.lastTs), lastET: String(a2Moves.lastTs) };
+    // Two-line timestamp: ET + KST (fixed), with seconds.
+    const lastTs = a2Moves?.lastTs;
+    if (!lastTs) return { et: "--", kst: "--" };
+
+    const ms = Date.parse(lastTs);
+    if (!Number.isFinite(ms)) return { et: "--", kst: "--" };
+
     const d = new Date(ms);
-    const lastLocal = new Intl.DateTimeFormat(undefined, {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(d);
-    const lastET = new Intl.DateTimeFormat(undefined, {
+    const fmt = (s) => String(s).replace(", ", " ");
+
+    const et = fmt(new Intl.DateTimeFormat("en-CA", {
       timeZone: "America/New_York",
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
-    }).format(d);
-    return { sessionET: a2Moves?.lastDay ?? "--", lastLocal, lastET };
-  }, [a2Moves?.lastDay, a2Moves?.lastTs]);
+      second: "2-digit",
+      hour12: false,
+    }).format(d));
+
+    const kst = fmt(new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Seoul",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).format(d));
+
+    return { et, kst };
+  }, [a2Moves?.lastTs]);
 
   return (
     <div
@@ -675,8 +687,8 @@ export function PageHome({ api, tab, setTab, t, lang }) {
                     rightText={a2Moves?.texts?.vix}
                   />
                   <div className="mt-2 text-[10px] text-white/50">
-                    {L("기준일", "Session")}: {a2Moves.lastDay} · {L("마지막", "Last")}:{" "}
-                    {String(a2Moves.lastTs).slice(0, 19).replace("T", " ")}
+                    <div>{a2Meta.et} (ET)</div>
+                    <div>{a2Meta.kst} (KST)</div>
                   </div>
                 </div>
               ) : (
