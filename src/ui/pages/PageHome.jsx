@@ -67,6 +67,9 @@ export function PageHome({ api, tab, setTab, t, lang }) {
   const daily = vm.raw?.daily ?? vm.daily ?? null;
   const intraday = vm.raw?.intraday ?? vm.intraday ?? null;
   const status = vm.raw?.status ?? vm.status ?? null;
+  // Top-level price snapshot (stitched from daily_latest.json in split mode)
+  const pricesSnap = api?.mri?.prices ?? api?.prices ?? null;
+
 
   const asOf = vm.meta?.asOf ?? daily?.meta?.asOf ?? "";
   const fmtAsOfDate = (s) => {
@@ -291,7 +294,7 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     const pctDaily = (keys) => {
       const arr = Array.isArray(keys) ? keys : [keys];
       for (const k of arr) {
-        const v = daily?.prices?.[k]?.changePct;
+        const v = pricesSnap?.[k]?.changePct;
         if (typeof v === "number" && Number.isFinite(v)) return v;
         const vf = intraday?.dailyFallback?.[k]?.changePct;
         if (typeof vf === "number" && Number.isFinite(vf)) return vf;
@@ -300,7 +303,7 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     };
 
     const lpDaily = (key) => {
-      const p = daily?.prices?.[key] ?? intraday?.dailyFallback?.[key];
+      const p = pricesSnap?.[key] ?? intraday?.dailyFallback?.[key];
       if (!p || typeof p !== "object") return null;
       const last = typeof p.last === "number" && Number.isFinite(p.last) ? p.last : null;
       const prev = typeof p.prevClose === "number" && Number.isFinite(p.prevClose) ? p.prevClose : null;
@@ -382,7 +385,7 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       _raw: { pQQQM, pXLP, pVOO, pUUP, pGLD, pTNX, pVIX, anchorIdx, lastIdx },
       fmt: fmtPct,
     };
-  }, [intraday?.prices, daily?.prices]);
+  }, [intraday?.prices, intraday?.dailyFallback, pricesSnap]);
 
   const A2Bar = ({ label, value, rightText }) => {
     const vmax = 0.03; // 3% full-scale (A is allowed to be volatile)
