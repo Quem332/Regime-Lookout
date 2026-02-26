@@ -326,31 +326,51 @@ export function PageHome({ api, tab, setTab, t, lang }) {
     const close = prices?.close && typeof prices.close === "object" ? prices.close : null;
     if (!ts || ts.length < 3 || !close) return null;
 
-    const lastTs = ts[ts.length - 1];
-    const lastDay = typeof lastTs === "string" ? lastTs.slice(0, 10) : null;
-    if (!lastDay) return null;
+    const lenOf = (sym) => (Array.isArray(close?.[sym]) ? close[sym].length : 0);
 
-    // Anchor = earliest timestamp within the lastDay segment (after our prev-close anchor injection).
-    let anchorIdx = -1;
-    let anchorTime = Infinity;
-    for (let i = 0; i < ts.length; i++) {
-      const d = typeof ts[i] === "string" ? ts[i].slice(0, 10) : null;
-      if (d !== lastDay) continue;
-      const tms = Date.parse(ts[i]);
-      if (Number.isFinite(tms) && tms < anchorTime) {
-        anchorTime = tms;
-        anchorIdx = i;
+    // Use a base length that is safe even if "prev-close anchor" was injected into ts only.
+    const baseLen = Math.min(
+      ts.length,
+      ...["QQQM", "XLP", "VOO", "UUP", "GLD"].map(lenOf).filter((n) => n > 0)
+    );
+    if (!Number.isFinite(baseLen) || baseLen < 3) return null;
+
+    const pickLastDay = (n) => {
+      const lastTs = ts[n - 1];
+      return typeof lastTs === "string" ? lastTs.slice(0, 10) : null;
+    };
+
+    const findAnchorIdx = (n) => {
+      const lastDay = pickLastDay(n);
+      if (!lastDay) return -1;
+      let anchorIdx = -1;
+      let anchorTime = Infinity;
+      for (let i = 0; i < n; i++) {
+        const d = typeof ts[i] === "string" ? ts[i].slice(0, 10) : null;
+        if (d !== lastDay) continue;
+        const tms = Date.parse(ts[i]);
+        if (Number.isFinite(tms) && tms < anchorTime) {
+          anchorTime = tms;
+          anchorIdx = i;
+        }
       }
-    }
-    if (anchorIdx < 0) return null;
+      return anchorIdx;
+    };
 
-    const lastIdx = ts.length - 1;
-
-    const pct = (sym) => {
+    const pct = (sym, n = baseLen) => {
       const arr = close?.[sym];
-      if (!Array.isArray(arr) || arr.length !== ts.length) return null;
+      if (!Array.isArray(arr)) return null;
+      const nn = Math.min(n, ts.length, arr.length);
+      if (nn < 3) return null;
+
+      const lastDay = pickLastDay(nn);
+      if (!lastDay) return null;
+
+      const anchorIdx = findAnchorIdx(nn);
+      if (anchorIdx < 0 || anchorIdx >= nn) return null;
+
       const a = arr[anchorIdx];
-      const b = arr[lastIdx];
+      const b = arr[nn - 1];
       if (typeof a !== "number" || typeof b !== "number" || !Number.isFinite(a) || !Number.isFinite(b) || a === 0) return null;
       return (b - a) / a; // fraction
     };
@@ -381,11 +401,17 @@ export function PageHome({ api, tab, setTab, t, lang }) {
       return { last, prev };
     };
 
-    const lpSeries = (sym) => {
+    const lpSeries = (sym, n = baseLen) => {
       const arr = close?.[sym];
-      if (!Array.isArray(arr) || arr.length !== ts.length) return null;
+      if (!Array.isArray(arr)) return null;
+      const nn = Math.min(n, ts.length, arr.length);
+      if (nn < 2) return null;
+
+      const anchorIdx = findAnchorIdx(nn);
+      if (anchorIdx < 0 || anchorIdx >= nn) return null;
+
       const prev = arr[anchorIdx];
-      const last = arr[lastIdx];
+      const last = arr[nn - 1];
       if (typeof prev !== "number" || typeof last !== "number" || !Number.isFinite(prev) || !Number.isFinite(last)) return null;
       return { last, prev };
     };
