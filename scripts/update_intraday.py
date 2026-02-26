@@ -251,6 +251,21 @@ def main() -> None:
 
     daily_fallback = _build_daily_fallback(repo_root)
 
+    # Optional: stitch 1D-only symbols (VIX/TNX) into intraday price series as constant levels
+    # so the UI can show right-side LEVEL text even when intraday bars are unavailable.
+    try:
+        if isinstance(daily_fallback, dict) and isinstance(prices_payload.get("close"), dict):
+            for key, sym in OPTIONAL_1D.items():
+                p = daily_fallback.get(key) or daily_fallback.get(sym)
+                if isinstance(p, dict):
+                    last = p.get("last")
+                    if isinstance(last, (int, float)) and math.isfinite(float(last)):
+                        # Keep keys consistent with UI labels: "^VIX"/"^TNX"
+                        ui_key = sym  # caret form
+                        prices_payload["close"][ui_key] = [float(last) for _ in range(len(prices_payload["ts"]))]
+    except Exception:
+        pass
+
     payload = {
         "schemaVersion": "2.3",
         "asOf": asof_ts.to_pydatetime().replace(tzinfo=ET).isoformat(),
