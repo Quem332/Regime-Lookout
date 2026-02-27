@@ -70,28 +70,10 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
   const W_CONF = L("신뢰도", "Conf.");
   const W_SCORE = L("점수", "Score");
 
-  const clamp01 = (v) => {
-    const n = Number(v);
-    if (!Number.isFinite(n)) return 0;
-    return Math.max(0, Math.min(1, n));
-  };
-
-  const topKFromScenario = (scn) => {
-    if (!scn) return null;
-    if (Number.isFinite(scn.topK)) return Number(scn.topK);
-    const pObj = scn?.probs && typeof scn.probs === "object" ? scn.probs : null;
-    if (!pObj) return null;
-    const top = Object.entries(pObj)
-      .map(([k, v]) => [Number(k), probParts(v).p])
-      .filter(([k, p]) => Number.isFinite(k) && typeof p === "number" && Number.isFinite(p))
-      .sort((a, b) => b[1] - a[1])[0];
-    return top ? top[0] : null;
-  };
-
   const vm = useMemo(() => buildMriViewModel({ api, t }), [api, t]);
   const daily = vm.raw.daily;
-  const intraday = vm.raw?.intraday ?? vm.intraday ?? null;
-  const marketOpen = Boolean(vm.raw?.marketOpen ?? marketOpen ?? false);
+  const status = vm.raw?.status ?? vm.status ?? api?.mri?.status ?? api?.status ?? null;
+  const marketOpen = Boolean(vm.raw?.marketOpen ?? status?.marketOpen ?? false);
 
   // Forward-compatible period support: accept both legacy (single daily) and new schema (daily.periods).
   const [lookback, setLookback] = useState(() =>
@@ -127,32 +109,6 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
     });
   }, [periodDaily?.Cfinal, periodDaily?.regime7, periodDaily?.probs, periodDaily?.tags, lookback, t]);
   const viewModel = periodDaily || daily;
-
-  // B-1 Score/Confidence should reflect the same "today scenario" logic used in A-1.
-  // If intraday scenario exists during market hours, use it; otherwise use the selected period pack.
-  const hasIntradayScenario = Boolean(marketOpen && intraday?.scenario);
-  const b1Scenario = hasIntradayScenario ? intraday.scenario : periodDaily;
-  const b1Score = Number.isFinite(b1Scenario?.score)
-    ? Number(b1Scenario.score)
-    : (Number.isFinite(periodDaily?.score) ? Number(periodDaily.score) : null);
-  const b1CfinalBase = Number.isFinite(b1Scenario?.Cfinal)
-    ? Number(b1Scenario.Cfinal)
-    : (Number.isFinite(periodDaily?.Cfinal) ? Number(periodDaily.Cfinal) : null);
-
-  // Consistency penalty (same idea as A-1): if intraday top scenario is unlikely under daily distribution,
-  // reduce confidence conservatively.
-  const b1Cfinal = (() => {
-    if (!Number.isFinite(b1CfinalBase)) return null;
-    if (!hasIntradayScenario) return b1CfinalBase;
-    const tk = topKFromScenario(intraday?.scenario);
-    if (tk == null) return b1CfinalBase;
-    const pRaw = dailyRoot?.probs?.[String(tk)];
-    const p = probParts(pRaw).p;
-    if (!(typeof p === "number" && Number.isFinite(p))) return b1CfinalBase;
-    const consistency = clamp01(p);
-    const penalized = b1CfinalBase - (1 - consistency) * 20;
-    return Math.round(Math.max(0, Math.min(100, penalized)));
-  })();
 
   const view = tab ?? "b1"; // b1 | b2
 
@@ -247,8 +203,8 @@ export function PageMarket({ api, tab, setTab, t, lang }) {
             <div className="mb-3 flex items-center justify-between gap-3">
               <div className="text-[11px] text-white/60 tabular-nums whitespace-nowrap">
                 {marketOpen ? L("오늘 장", "Live") : L("마감", "Close")}
-                {Number.isFinite(b1Score) ? ` ${W_SCORE} ${Math.round(b1Score)}` : ""}
-                {Number.isFinite(b1Cfinal) ? ` · ${W_CONF} ${Math.round(b1Cfinal)}` : ""}
+                {Number.isFinite(periodDaily?.score) ? ` ${W_SCORE} ${Math.round(periodDaily.score)}` : ""}
+                {Number.isFinite(periodDaily?.Cfinal) ? ` · ${W_CONF} ${Math.round(periodDaily.Cfinal)}` : ""}
               </div>
             </div>
 
