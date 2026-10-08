@@ -2,7 +2,7 @@
   "schemaVersion": "2.3",
   "asOf": "2026-10-07T19:45:00-04:00",
   "intervalUsed": "15m",
-  "latencyMin": 67,
+  "latencyMin": 293,
   "intraday": {
     "zShort": -0.21376350271470762,
     "corrAvg": 0.013378159838824866,
@@ -863,5 +863,5 @@
     "level": "OK",
     "source": "yfinance"
   },
-  "fetchedAt": "2026-10-07T16:51:37-04:00"
+  "fetchedAt": "2026-10-07T20:37:47-04:00"
 }
